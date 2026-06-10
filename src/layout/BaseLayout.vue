@@ -207,7 +207,7 @@ function connectNotifWs() {
   }
 
   notifWs.onopen = () => {
-    console.log('[通知] WebSocket 已连接')
+    // WebSocket 连接成功，不做额外处理
   }
 
   notifWs.onmessage = (event) => {

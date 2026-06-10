@@ -141,8 +141,8 @@ async function handlePublish(row) {
   try {
     const res = await publishScreen({ id: row.id })
     if (res.code === 0) {
-      ElMessage.success('已推送到首页')
-      setTimeout(() => router.push('/dashboard'), 1500)
+      ElMessage.success('发布成功')
+      fetchList() // 刷新列表，不跳转，让用户自行决定下一步
     } else {
       ElMessage.error(res.message || '发布失败')
     }

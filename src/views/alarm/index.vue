@@ -367,7 +367,7 @@ function connectWebSocket() {
   try {
     ws = new WebSocket(url)
     ws.onopen = () => {
-      console.log('[告警] WebSocket 已连接')
+      // WebSocket 连接成功，重置新告警提示计数
       newAlarmTip.value = 0
     }
     ws.onmessage = (event) => {
@@ -389,7 +389,6 @@ function connectWebSocket() {
       }
     }
     ws.onclose = () => {
-      console.log('[告警] WebSocket 已断开')
       ws = null
       scheduleReconnect()
     }
@@ -404,7 +403,6 @@ function scheduleReconnect() {
     clearTimeout(wsReconnectTimer)
   }
   wsReconnectTimer = setTimeout(() => {
-    console.log('[告警] 尝试重连 WebSocket...')
     connectWebSocket()
   }, 5000)
 }
