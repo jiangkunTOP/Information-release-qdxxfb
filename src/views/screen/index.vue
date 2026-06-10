@@ -1,0 +1,319 @@
+<template>
+  <div class="page-container">
+    <div class="page-title">
+      <el-icon><Monitor /></el-icon>
+      大屏发布
+    </div>
+
+    <div class="filter-bar">
+      <div class="filter-bar-left">
+        <el-input v-model="query.keyword" placeholder="大屏标题" clearable style="width: 200px;" @keyup.enter="handleSearch" />
+        <el-select v-model="query.scbj" style="width: 110px;" @change="fetchList">
+          <el-option label="未删除" value="0" />
+          <el-option label="已删除" value="1" />
+          <el-option label="全部" value="" />
+        </el-select>
+        <el-button type="primary" @click="handleSearch">查询</el-button>
+        <el-button @click="handleReset">重置</el-button>
+      </div>
+      <div class="filter-bar-right">
+        <el-button type="primary" @click="createNew">新建大屏</el-button>
+      </div>
+    </div>
+
+    <div class="page-card" style="margin-top: 16px;">
+      <el-table
+        :data="list"
+        v-loading="loading"
+        stripe
+        border
+        :resizable="false"
+        style="width: 100%;"
+        empty-text=""
+        max-height="calc(100vh - 280px)"
+      >
+        <el-table-column label="标题" min-width="200" align="center">
+          <template #default="{ row }">
+            <span style="font-weight:500;">{{ row.title || '(未命名)' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="设计尺寸" min-width="120" align="center">
+          <template #default="{ row }">{{ row.pageWidth || 1920 }} x {{ row.pageHeight || 1080 }}</template>
+        </el-table-column>
+<el-table-column label="绑定终端" min-width="120" align="center">
+          <template #default="{ row }">{{ row.targetGroupName || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="创建人" min-width="120" align="center" prop="createdBy" />
+        <el-table-column label="创建时间" min-width="160" align="center">
+          <template #default="{ row }">{{ formatTime(row.createdDate) }}</template>
+        </el-table-column>
+        <el-table-column label="更新时间" min-width="160" align="center">
+          <template #default="{ row }">{{ formatTime(row.updateDate) }}</template>
+        </el-table-column>
+                <el-table-column label="定时发布" min-width="160" align="center">
+          <template #default="{ row }">
+            <template v-if="row.scheduledPublishTime && row.scheduledPublishStatus === '1'">
+              <span style="color:#67c23a;">已发布</span>
+            </template>
+            <template v-else-if="row.scheduledPublishTime">
+              <span>{{ formatTime(row.scheduledPublishTime) }}</span>
+            </template>
+            <template v-else>
+              <span style="color:#909399;">-</span>
+            </template>
+          </template>
+        </el-table-column><el-table-column label="操作" width="520" fixed="right" align="center" :resizable="false">
+          <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="editScreen(row)">编辑</el-button>
+            <el-button link type="primary" size="small" @click="previewScreen(row)">预览</el-button>
+            <el-button link type="success" size="small" @click="handlePushToTerminal(row)">推送大屏</el-button>            <el-button link type="warning" size="small" @click="handleSchedulePublish(row)">定时发布</el-button>
+            <el-button link type="danger" size="small" @click="handleDelete(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <div class="pagination-bar">
+        <el-pagination
+          v-model:current-page="query.pageNum"
+          v-model:page-size="query.pageSize"
+          :total="total"
+          :page-sizes="[10, 20, 50]"
+          layout="total, sizes, prev, pager, next"
+          @size-change="fetchList"
+          @current-change="fetchList"
+        />
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, reactive, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { getScreenList, publishScreen, deleteScreen, pushToTerminal, schedulePublishScreen, cancelSchedulePublish } from '@/api/screen'
+
+const router = useRouter()
+const list = ref([])
+const total = ref(0)
+const loading = ref(false)
+
+const query = reactive({
+  keyword: '',
+  scbj: '0',
+  pageNum: 1,
+  pageSize: 20,
+})
+
+onMounted(() => { fetchList() })
+
+async function fetchList() {
+  loading.value = true
+  try {
+    const res = await getScreenList(query)
+    if (res.code === 0) {
+      list.value = res.data?.records || []
+      total.value = res.data?.total || 0
+    }
+  } catch (e) { /* ignore */ }
+  loading.value = false
+}
+
+function handleSearch() { query.pageNum = 1; fetchList() }
+function handleReset() { query.keyword = ''; query.scbj = '0'; query.pageNum = 1; fetchList() }
+
+function createNew() {
+  router.push('/screen/editor')
+}
+
+function editScreen(row) {
+  router.push(`/screen/editor/${row.id}`)
+}
+
+function previewScreen(row) {
+  router.push(`/screen/preview/${row.id}`)
+}
+
+async function handlePublish(row) {
+  try {
+    await ElMessageBox.confirm(`确定发布「${row.title}」？`, '提示', { type: 'info' })
+  } catch { return }
+  try {
+    const res = await publishScreen({ id: row.id })
+    if (res.code === 0) {
+      ElMessage.success('已推送到首页')
+      setTimeout(() => router.push('/dashboard'), 1500)
+    } else {
+      ElMessage.error(res.message || '发布失败')
+    }
+  } catch (e) { /* ignore */ }
+}
+
+async function handlePushToTerminal(row) {
+  if (!row.targetGroupId) {
+    ElMessage.warning('该大屏未绑定终端，请先编辑绑定')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(`确定将「${row.title}」推送到〖${row.targetGroupName || '终端'}〗播放？`, '推送确认', {
+      type: 'info',
+      confirmButtonText: '推送',
+      cancelButtonText: '取消',
+    })
+  } catch { return }
+  try {
+    const res = await pushToTerminal({
+      screenId: row.id
+    })
+    if (res.code === 0) {
+      ElMessage.success('推送成功')
+    } else {
+      ElMessage.error('推送失败')
+    }
+  } catch (e) {
+    ElMessage.error('推送失败')
+  }
+}
+
+async function handleSchedulePublish(row) {
+  const isScheduled = row.scheduledPublishTime && row.scheduledPublishStatus !== '1'
+  if (isScheduled) {
+    // 已设置定时，提供取消/修改选项
+    const action = await ElMessageBox.confirm(
+      `当前定时发布时间：${formatTime(row.scheduledPublishTime)}\n\n取消还是修改？`,
+      '定时发布',
+      {
+        type: 'info',
+        confirmButtonText: '修改时间',
+        cancelButtonText: '取消定时',
+        distinguishCancelAndClose: true,
+      }
+    ).catch((action) => {
+      if (action === 'cancel') return 'cancel'
+      throw action
+    })
+    if (action === 'cancel') {
+      // 取消定时
+      try {
+        const res = await cancelSchedulePublish({ id: row.id })
+        if (res.code === 0) {
+          ElMessage.success('已取消定时发布')
+          fetchList()
+        } else {
+          ElMessage.error(res.message || '操作失败')
+        }
+      } catch (e) {
+        ElMessage.error('操作失败')
+      }
+      return
+    }
+    // 修改时间 -> 继续弹日期选择
+  }
+  // 弹出日期时间选择器
+  try {
+    const { value } = await ElMessageBox.prompt(
+      `请选择定时发布时间（${row.title}）`,
+      '定时发布',
+      {
+        inputType: 'datetime-local',
+        inputPlaceholder: '选择日期和时间',
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        inputValidator: (val) => {
+          if (!val) return '请选择发布时间'
+          const d = new Date(val)
+          if (isNaN(d.getTime())) return '日期格式无效'
+          if (d.getTime() <= Date.now()) return '发布时间必须晚于当前时间'
+          return true
+        },
+      }
+    )
+    if (!value) return
+    const d = new Date(value)
+    const pad = (n) => String(n).padStart(2, '0')
+    const localTime = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`
+    const res = await schedulePublishScreen({
+      screenId: row.id,
+      scheduledPublishTime: localTime,
+    })
+    if (res.code === 0) {
+      ElMessage.success('定时发布设置成功')
+      fetchList()
+    } else {
+      ElMessage.error(res.message || '设置失败')
+    }
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') {
+      ElMessage.error('设置失败')
+    }
+  }
+}
+async function handleDelete(row) {
+  try {
+    await ElMessageBox.confirm(`确定删除「${row.title}」？`, '提示', { type: 'warning' })
+  } catch { return }
+  try {
+    const res = await deleteScreen({ id: row.id })
+    if (res.code === 0) {
+      ElMessage.success('删除成功')
+      router.push('/dashboard')
+    } else {
+      ElMessage.error(res.message || '删除失败')
+    }
+  } catch (e) { /* ignore */ }
+}
+
+function formatTime(val) {
+  if (!val) return '-'
+  const d = new Date(val)
+  if (isNaN(d.getTime())) return val
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+</script>
+
+<style scoped>
+.filter-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.filter-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.filter-bar-right {
+  display: flex;
+  align-items: center;
+}
+
+.pagination-bar {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+:deep(.el-table) {
+  font-size: 13px;
+  table-layout: fixed;
+}
+
+:deep(.el-table .cell) {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+:deep(.el-table__empty-text) {
+  display: none;
+}
+
+.page-card {
+  overflow-x: auto;
+}
+</style>
