@@ -401,7 +401,7 @@ const handleArm = async (row) => {
     try {
       const res = await armDevice({ equipmentId: row.equipmentId })
       if (res.code === 0) {
-        ElMessage.success('设备布防成功')
+        ElMessage.success('布防成功，设备已进入监控状态，触发报警时将自动抓拍')
         fetchList()
       } else {
         ElMessage.error(res.msg || '布防失败')

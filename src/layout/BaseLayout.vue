@@ -106,8 +106,8 @@
         </div>
 
         <div class="nav-right">
-          <!-- 消息通知图标 -->
-          <div class="notification-bell" @click="router.push('/notification')" title="消息通知">
+          <!-- 消息通知图标 — 审计员无此功能，不展示 — 2026-06-11 -->
+          <div v-if="!userStore.isAuditor" class="notification-bell" @click="router.push('/notification')" title="消息通知">
             <el-badge :value="unreadCount" :hidden="unreadCount === 0" :max="99" class="notif-badge">
               <el-icon :size="20"><Bell /></el-icon>
             </el-badge>
@@ -145,7 +145,8 @@
     </div>
 
     <!-- WebSocket 通知弹窗 -->
-    <div v-if="popupNotif" class="notif-popup" @click="handlePopupClick">
+    <!-- 通知弹窗 — 审计员无此功能，不展示 — 2026-06-11 -->
+    <div v-if="!userStore.isAuditor && popupNotif" class="notif-popup" @click="handlePopupClick">
       <div class="notif-popup-inner">
         <div class="notif-popup-icon">
           <el-icon :size="18" color="#fff"><WarningFilled /></el-icon>
@@ -285,8 +286,11 @@ function onNotifReadChange(event) {
 onMounted(() => {
   window.addEventListener('resize', handleResize)
   window.addEventListener('message', onNotifReadChange)
-  fetchUnreadCount()
-  connectNotifWs()
+  // 审计员无通知功能，不拉取未读数也不连接 WebSocket — 2026-06-11
+  if (!userStore.isAuditor) {
+    fetchUnreadCount()
+    connectNotifWs()
+  }
 })
 
 onBeforeUnmount(() => {
