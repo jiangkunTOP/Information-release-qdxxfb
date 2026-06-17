@@ -256,7 +256,7 @@ async function handleDelete(row) {
     const res = await deleteScreen({ id: row.id })
     if (res.code === 0) {
       ElMessage.success('删除成功')
-      router.push('/dashboard')
+      fetchList() // 留在当前页面，刷新列表
     } else {
       ElMessage.error(res.message || '删除失败')
     }

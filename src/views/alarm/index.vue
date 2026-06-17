@@ -201,6 +201,8 @@ const previewUrl = ref('')
 // WebSocket 连接
 let ws = null
 let wsReconnectTimer = null
+/** D12: WebSocket 心跳定时器（每 25s 发 PING） */
+let heartbeatTimer = null
 
 const query = reactive({
   pageNum: 1,
@@ -369,9 +371,22 @@ function connectWebSocket() {
     ws.onopen = () => {
       // WebSocket 连接成功，重置新告警提示计数
       newAlarmTip.value = 0
+      // D12: 启动心跳定时器：每 25s 发一次 PING
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer)
+      }
+      heartbeatTimer = setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send('PING')
+        }
+      }, 25000)
     }
     ws.onmessage = (event) => {
       try {
+        // D12: WebSocket 心跳回复 "PONG" 是纯文本，跳过 JSON 解析
+        if (event.data === 'PONG' || event.data === 'pong') {
+          return
+        }
         const data = JSON.parse(event.data)
         if (data.type === 'new_alarm' || data.type === 'new_notification') {
           newAlarmTip.value++
@@ -379,7 +394,7 @@ function connectWebSocket() {
           fetchOverview()
         }
       } catch (e) {
-        console.error('[告警] 解析消息失败:', e)
+        console.error('[告警] 解析消息失败:', e, '原始数据:', event.data)
       }
     }
     ws.onerror = (err) => {
@@ -408,6 +423,11 @@ function scheduleReconnect() {
 }
 
 function disconnectWebSocket() {
+  // D12: 清理心跳定时器
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer)
+    heartbeatTimer = null
+  }
   if (wsReconnectTimer) {
     clearTimeout(wsReconnectTimer)
     wsReconnectTimer = null

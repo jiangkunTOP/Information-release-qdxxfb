@@ -181,6 +181,8 @@ const unreadCount = ref(0)
 let notifWs = null
 let wsReconnectTimer = null
 let popupTimer = null
+/** D12: WebSocket 心跳定时器（每 25s 发 PING） */
+let heartbeatTimer = null
 const popupNotif = ref(null)
 
 const avatarText = computed(() => {
@@ -208,7 +210,15 @@ function connectNotifWs() {
   }
 
   notifWs.onopen = () => {
-    // WebSocket 连接成功，不做额外处理
+    // D12: 启动心跳定时器：每 25s 发一次 PING
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer)
+    }
+    heartbeatTimer = setInterval(() => {
+      if (notifWs && notifWs.readyState === WebSocket.OPEN) {
+        notifWs.send('PING')
+      }
+    }, 25000)
   }
 
   notifWs.onmessage = (event) => {
@@ -303,6 +313,11 @@ onBeforeUnmount(() => {
   }
   if (wsReconnectTimer) clearTimeout(wsReconnectTimer)
   if (popupTimer) clearTimeout(popupTimer)
+  // D12: 清理心跳
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer)
+    heartbeatTimer = null
+  }
 })
 
 const handleCommand = (command) => {

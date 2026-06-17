@@ -114,16 +114,19 @@ const router = createRouter({
 })
 
 // 路由守卫 - 未登录跳转登录页
+// C7: httpOnly Cookie 方案，前端不再存 token，通过 userInfo 判断登录状态
 router.beforeEach((to, from, next) => {
-  const token = localStorage.getItem('token')
+  const userInfoStr = localStorage.getItem('userInfo')
+  const userInfo = userInfoStr ? JSON.parse(userInfoStr) : null
+  const isLoggedIn = !!userInfo?.userId
+
   if (to.meta.noAuth) {
     next()
-  } else if (!token) {
+  } else if (!isLoggedIn) {
     next('/login')
   } else {
     // 角色鉴权
     if (to.meta.roles) {
-      const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}')
       const role = userInfo.role || ''
       if (!to.meta.roles.includes(role)) {
         // 无权限，跳首页

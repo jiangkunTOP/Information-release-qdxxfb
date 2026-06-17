@@ -8,20 +8,6 @@
           </div>
           <h2>信息发布系统</h2>
           <p>终端信息发布管理平台</p>
-          <ul>
-            <li>
-              <el-icon><FolderOpened /></el-icon>
-              内容统一管理发布
-            </li>
-            <li>
-              <el-icon><Monitor /></el-icon>
-              终端设备实时监控
-            </li>
-            <li>
-              <el-icon><Camera /></el-icon>
-              抓拍回传与审计
-            </li>
-          </ul>
         </div>
       </div>
 

@@ -411,6 +411,11 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (clockTimer) clearInterval(clockTimer)
   Object.values(allCarouselTimers).forEach(t => clearInterval(t))
+  // 清理全局防抖残留
+  if (window._resizeTimer) {
+    clearTimeout(window._resizeTimer)
+    window._resizeTimer = null
+  }
   window.removeEventListener('resize', onWindowResize)
   document.removeEventListener('keydown', onKeyDown)
   document.removeEventListener('mousemove', onDragMove)
@@ -474,7 +479,9 @@ function resolveMediaUrl(name) {
   return '/api/screen/public-preview?objectName=' + encodeURIComponent(name)
 }
 
-function onMediaError(e) { /* silent */ }
+function onMediaError(e) {
+  console.warn('[ScreenEditor] 媒体资源加载失败:', e?.message || e)
+}
 
 // ==== 文件上传 ====
 async function uploadFile(fileInfo, targetType) {
@@ -729,7 +736,9 @@ async function fetchWeatherForElement(el) {
     if (data.code === 0 && data.data) {
       weatherData[el.id] = data.data
     }
-  } catch (e) { /* silent */ }
+  } catch (e) {
+    console.warn('[ScreenEditor] 天气数据加载失败:', e?.message || e)
+  }
 }
 
 function handleCityChange(val) {
@@ -746,30 +755,42 @@ function scrollDuration(el) {
 
 // ==== 加载/保存 ====
 async function loadRecord(id) {
-  try {
-    const res = await getScreenDetail(id)
-    if (res.code === 0 && res.data) {
-      const d = res.data
-      publishTitle.value = d.title || ''
-      targetGroupId.value = d.targetGroupId || ''
-      pageWidth.value = d.pageWidth || 1920
-      pageHeight.value = d.pageHeight || 1080
-      backgroundColor.value = d.backgroundColor || '#000000'
-      backgroundImage.value = d.backgroundImage || ''
-      if (d.layoutJson) {
-        try {
-          elements.value = JSON.parse(d.layoutJson) || []
-        } catch (e) { elements.value = [] }
-      } else {
-        elements.value = []
+  // 后台静默加载：最多重试 3 次
+  let lastErr = null
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await getScreenDetail(id)
+      if (res.code === 0 && res.data) {
+        // 后端 V3 接口包了一层 ScreenDisplayVO（data.data），需要解包
+        const d = res.data?.data || res.data
+        publishTitle.value = d.title || ''
+        targetGroupId.value = d.targetGroupId || ''
+        pageWidth.value = d.pageWidth || 1920
+        pageHeight.value = d.pageHeight || 1080
+        backgroundColor.value = d.backgroundColor || '#000000'
+        backgroundImage.value = d.backgroundImage || ''
+        if (d.layoutJson) {
+          try {
+            elements.value = JSON.parse(d.layoutJson) || []
+          } catch (e) { elements.value = [] }
+        } else {
+          elements.value = []
+        }
+        elements.value.forEach(el => { startCarouselForElement(el); fetchWeatherForElement(el) })
+        await nextTick()
+        fitScreen()
+        return  // 加载成功
       }
-      elements.value.forEach(el => { startCarouselForElement(el); fetchWeatherForElement(el) })
-      await nextTick()
-      fitScreen()
+    } catch (e) {
+      lastErr = e
+      if (attempt < 3) {
+        console.warn('[ScreenEditor] 大屏加载失败 第' + attempt + '次，即将重试:', e?.message || e)
+        await new Promise(r => setTimeout(r, 2000 * attempt))  // 指数退避
+      }
     }
-  } catch (e) {
-    ElMessage.error('加载失败')
   }
+  // 3 次都失败，记录日志但不对用户弹窗（后台初始化）
+  console.warn('[ScreenEditor] 大屏加载失败（已重试3次）:', lastErr?.message || lastErr)
 }
 
 async function handleSave() {
@@ -813,7 +834,9 @@ async function loadServerTerminals() {
     if (res.code === 0) {
       serverTerminals.value = res.data || []
     }
-  } catch (e) { /* ignore */ }
+  } catch (e) {
+    console.warn('[ScreenEditor] 终端列表加载失败:', e?.message || e)
+  }
 }
 
 function handlePreview() {

@@ -68,7 +68,8 @@
       <div class="page-card">
         <div class="card-title">
           近期告警
-          <el-button link type="primary" size="small" @click="$router.push('/alarm')" style="margin-left: auto;">查看更多</el-button>
+          <el-button v-if="!userStore.isAuditor" link type="primary" size="small" @click="$router.push('/alarm')" style="margin-left: auto;">查看更多</el-button>
+          <span v-else style="margin-left: auto; color: #909399; font-size: 12px;">仅展示近期</span>
         </div>
         <div v-if="recentAlarms.length === 0" class="empty-tip">暂无告警</div>
         <div v-else class="alarm-list">
@@ -94,7 +95,10 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { Odometer, Monitor, VideoCamera, CloseBold, WarningFilled } from '@element-plus/icons-vue'
+import { useUserStore } from '@/stores/user'
 import request from '@/utils/request'
+
+const userStore = useUserStore()
 
 const statistics = reactive({
   cameraOnlineCount: 0,

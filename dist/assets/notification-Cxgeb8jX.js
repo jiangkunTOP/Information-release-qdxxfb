@@ -1,1 +1,0 @@
-import{r as i}from"./request-Dah8BkWt.js";function o(t,a){return i.get("/api/notification/list",{params:{pageNum:t,pageSize:a}})}function r(){return i.get("/api/notification/overview")}function e(t){return i.put(`/api/notification/read/${t}`)}function f(){return i.put("/api/notification/read-all")}export{o as a,e as b,r as g,f as m};
