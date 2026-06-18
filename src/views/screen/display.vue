@@ -27,22 +27,26 @@
               <div v-else class="clock-digital">{{ currentTimeStr }}</div>
               <div v-if="el.showDate!==false" class="clock-date">{{ currentDateStr }}</div>
             </div>
-        <div v-else-if="el.type==='weather'" class="el-weather" :style="{ fontSize: el.fontSize+'px', color: el.color, background: el.backgroundColor||'transparent', fontFamily: el.fontFamily||'inherit' }" :class="'weather-'+(el.weatherStyle||'simple')">
-          <div v-if="weatherData[el.id]" class="weather-card { background: rgba(255,255,255,0.1); border-radius: 12px; padding: 12px 20px; backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.15); }
-.weather-icon-layout { display: flex; align-items: center; gap: 8px; }
-.weather-icon { width: 48px; height: 48px; }
-.weather-inner">
-            <div v-if="el.weatherStyle==='card'" class="weather-card">
-              <div class="weather-temp">{{ weatherData[el.id].temp }}°C</div>
-              <div class="weather-info">{{ weatherData[el.id].text }} · {{ el.city||'' }}</div>
-            </div>
-            <div v-else-if="el.weatherStyle==='icon'" class="weather-icon-layout">
-              <img v-if="weatherData[el.id].icon" :src="weatherData[el.id].icon" class="weather-icon" />
-              <div><div class="weather-temp">{{ weatherData[el.id].temp }}°C</div><div class="weather-info">{{ weatherData[el.id].text }} · {{ el.city||'' }}</div></div>
-            </div>
-            <div v-else class="weather-simple">
-              <div class="weather-temp">{{ weatherData[el.id].temp }}°C</div>
-              <div class="weather-info">{{ weatherData[el.id].text }} · {{ el.city||'' }}</div>
+        <!-- P1 天气改造：去掉非法 class 语法（原 class 属性中嵌入了 CSS 声明块）
+             改用纯 :style 内联绑定。天气数据走后端代理返回的 JSON 结构，
+             字段为 { temp, text, icon, raw }。以 raw 纯文本方式展示。 -->
+        <div v-else-if="el.type==='weather'" class="el-weather"
+          :style="{
+            fontSize: el.fontSize ? el.fontSize + 'px' : '20px',
+            color: el.color || '#ffffff',
+            background: el.backgroundColor || 'transparent',
+            fontFamily: el.fontFamily || 'inherit',
+          }">
+          <div v-if="weatherData[el.id]"
+            :style="{
+              borderRadius: '12px',
+              padding: '12px 20px',
+              backdropFilter: 'blur(4px)',
+              border: '1px solid rgba(255,255,255,0.15)',
+              background: 'rgba(255,255,255,0.1)',
+            }">
+            <div style="font-size:24px;font-weight:bold;margin-bottom:4px;">
+              {{ weatherData[el.id].raw || (weatherData[el.id].temp + '\u00B0C ' + (weatherData[el.id].text||'')) }}
             </div>
           </div>
         </div>
@@ -54,7 +58,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
-import { getLatestPublishedScreen, getScreenDetail } from '@/api/screen'
+import { getLatestPublished, getScreenDetail } from '@/api/screen'
 
 const route = useRoute()
 const rootRef = ref(null)
@@ -103,10 +107,32 @@ function elementStyle(el) {
   return { position: 'absolute', left: el.x + 'px', top: el.y + 'px', width: el.w + 'px', height: el.h + 'px', zIndex: el.zIndex ?? 1, overflow: 'hidden' }
 }
 
+/**
+ * H3 修复：解析素材 URL — 彻底删除硬编码 MinIO 物理 IP
+ *
+ * 不再返回 http://192.168.0.174:9000/content-files/... 直链，
+ * 改为请求后端安全代理路由 /api/storage/fetch 或 /api/storage/fetch/range。
+ *
+ * 后端 StorageProxyController 从 MinIO 拉取文件流并回写，
+ * 前端永远不知道 MinIO 的真实地址，满足等保合规要求。
+ *
+ * 视频走 /api/storage/fetch/range（支持 Range 分片渐进式播放）
+ * 图片/其他走 /api/storage/fetch（全量返回）
+ *
+ * @param {string} name 素材名称或完整 URL
+ * @returns {string} 通过后端代理访问的 URL
+ */
 function resolveMediaUrl(name) {
   if (!name) return ''
+  // 已经是完整 URL 或 data/blob 协议，直接返回
   if (name.startsWith('http://') || name.startsWith('https://') || name.startsWith('data:') || name.startsWith('blob:')) return name
-  return '/api/screen/public-preview?objectName=' + encodeURIComponent(name)
+  // H3 修复：objectName → 后端代理路由，彻底隐藏 MinIO 物理 IP
+  // 视频用 /api/storage/fetch/range?objectName=... 支持渐进式播放
+  const lower = name.toLowerCase()
+  if (lower.endsWith('.mp4') || lower.endsWith('.webm') || lower.endsWith('.avi') || lower.endsWith('.mov')) {
+    return '/api/storage/fetch/range?objectName=' + encodeURIComponent(name)
+  }
+  return '/api/storage/fetch?objectName=' + encodeURIComponent(name)
 }
 
 function carouselIdx(elId) { return carouselState[elId] ?? 0 }
@@ -126,6 +152,15 @@ function startCarouselForElement(el) {
 function scrollDuration(el) { const m = { slow:'40s', medium:'20s', fast:'10s' }; return m[el.speed] || '20s' }
 
 /** 天气组件数据拉取 */
+/**
+ * P1 天气数据拉取（先走代理，不直连公网）
+ *
+ * 当前方案：优先通过后端代理 /api/screen/weather → wttr.in
+ *   原因：终端浏览器直连 wttr.in 时可能被网络层返回非预期内容（如 CSS/HTML），
+ *   导致页面显示"一串代码"。先走后端代理保证稳定。
+ *
+ * P2 离线化改造时改为：终端 server.py 本地代理天气请求，实现完全离线。
+ */
 async function fetchWeatherForElement(el) {
   if (el.type !== 'weather' || !el.city) return
   try {
@@ -136,6 +171,8 @@ async function fetchWeatherForElement(el) {
     }
   } catch (e) {
     console.warn('[ScreenDisplay] 天气数据加载失败:', e?.message || e)
+    // 不设置 fallback，保持之前的 weatherData[el.id] 为 undefined，
+    // 模板中 v-if="weatherData[el.id]" 为 false，不显示天气（保持面板空白）
   }
 }
 
@@ -143,7 +180,14 @@ async function fetchWeatherForElement(el) {
 function startWeatherPolling() {
   stopWeatherPolling()
   weatherTimer = setInterval(() => {
-    elements.value.forEach(el => fetchWeatherForElement(el))
+    // P1 优化：串行拉取天气，避免低功耗设备并发请求卡顿
+    const weatherEls = elements.value.filter(el => el.type === 'weather')
+    ;(async function() {
+      for (const el of weatherEls) {
+        await fetchWeatherForElement(el)
+        await new Promise(r => setTimeout(r, 300))
+      }
+    })()
   }, 30 * 60 * 1000)
 }
 
@@ -184,7 +228,7 @@ async function loadScreenData() {
     if (id) {
       res = await getScreenDetail(id)
     } else {
-      res = await getLatestPublishedScreen()
+      res = await getLatestPublished()
     }
 
     // res 是 axios 响应拦截器 unwrap 后的 Result 对象（{ code, data, message, ... }）
@@ -302,8 +346,20 @@ function renderScreenData(data) {
   if (data.layoutJson) {
     try { elements.value = JSON.parse(data.layoutJson) || [] } catch (e) { elements.value = [] }
     elements.value.forEach(el => { startCarouselForElement(el) })
-    // 非阻塞加载天气
-    Promise.all(elements.value.map(el => fetchWeatherForElement(el)))
+    // P1 优化：天气请求从并发（Promise.all）改为串行逐一请求
+    // 树莓派等低功耗设备同时发起多个 HTTP 请求会导致 CPU 满载、页面卡顿
+    // 每个请求间隔 300ms 给浏览器喘息时间
+    const weatherElements = elements.value.filter(el => el.type === 'weather')
+    ;(async function() {
+      for (const el of weatherElements) {
+        try {
+          await fetchWeatherForElement(el)
+        } catch (e) {
+          console.warn('[ScreenDisplay] 天气请求失败:', el?.id, e?.message || e)
+        }
+        await new Promise(r => setTimeout(r, 300))
+      }
+    })()
   }
 }
 

@@ -150,7 +150,11 @@ onMounted(async () => {
     try {
       const res = await getScreenDetail(id)
       if (res.code === 0 && res.data) {
-        const d = res.data
+        // 兼容两种数据结构：
+        // 新版接口: res.data = ScreenDisplayVO => { data: ScreenDashboard, timestamp, sign }
+        // 旧版接口: res.data = ScreenDashboard（直接包含 layoutJson 等字段）
+        const raw = res.data
+        const d = (raw.data && raw.data.layoutJson !== undefined) ? raw.data : raw
         pageWidth.value = d.pageWidth || 1920
         pageHeight.value = d.pageHeight || 1080
         backgroundColor.value = d.backgroundColor || '#000000'

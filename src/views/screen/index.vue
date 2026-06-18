@@ -84,6 +84,34 @@
         />
       </div>
     </div>
+
+    <!-- P2: 异步推送进度条对话框 -->
+    <el-dialog v-model="pushDialogVisible" title="推送进度" :close-on-click-modal="false" width="450px">
+      <div style="text-align: center; padding: 10px 0;">
+        <div style="margin-bottom: 12px;">
+          <div v-if="pushTask.running" style="position:relative;width:60px;height:60px;margin:0 auto;">
+            <el-progress type="circle" :percentage="pushTask.progress" :width="60" :stroke-width="5" />
+          </div>
+          <div v-else-if="pushTask.success" style="display:flex;align-items:center;justify-content:center;">
+            <el-icon :size="48" color="#67c23a"><CircleCheckFilled /></el-icon>
+          </div>
+          <div v-else style="display:flex;align-items:center;justify-content:center;">
+            <el-icon :size="48" color="#f56c6c"><CircleCloseFilled /></el-icon>
+          </div>
+        </div>
+        <div style="font-size:16px;font-weight:bold;margin-bottom:4px;">{{ pushTask.phase }}</div>
+        <div style="font-size:14px;color:#909399;">{{ pushTask.stepDetail }}</div>
+        <div v-if="pushTask.success" style="margin-top:12px;font-size:14px;color:#67c23a;">
+          推送已完成！终端正在打开大屏
+        </div>
+        <div v-if="pushTask.errorMsg" style="margin-top:12px;font-size:13px;color:#f56c6c;">
+          {{ pushTask.errorMsg }}
+        </div>
+      </div>
+      <template #footer>
+        <el-button v-if="!pushTask.running" @click="pushDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -91,7 +119,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getScreenList, publishScreen, deleteScreen, pushToTerminal, schedulePublishScreen, cancelSchedulePublish } from '@/api/screen'
+import { listScreen, publishScreen, deleteScreen, pushToTerminal, schedulePublish, cancelSchedulePublish, asyncPushToTerminal, getPushTaskProgress } from '@/api/screen'
 
 const router = useRouter()
 const list = ref([])
@@ -110,7 +138,7 @@ onMounted(() => { fetchList() })
 async function fetchList() {
   loading.value = true
   try {
-    const res = await getScreenList(query)
+    const res = await listScreen(query)
     if (res.code === 0) {
       list.value = res.data?.records || []
       total.value = res.data?.total || 0
@@ -149,6 +177,25 @@ async function handlePublish(row) {
   } catch (e) { /* ignore */ }
 }
 
+// ==================== P2: 异步推送（离线包 + 进度条） ====================
+
+const pushDialogVisible = ref(false)
+const pushTask = reactive({
+  taskId: '',
+  screenId: '',
+  screenTitle: '',
+  terminalIp: '',
+  progress: 0,
+  phase: '',
+  stepDetail: '',
+  running: false,
+  success: false,
+  errorMsg: '',
+})
+
+/** 进度轮询定时器 */
+let pushPollTimer = null
+
 async function handlePushToTerminal(row) {
   if (!row.targetGroupId) {
     ElMessage.warning('该大屏未绑定终端，请先编辑绑定')
@@ -161,18 +208,61 @@ async function handlePushToTerminal(row) {
       cancelButtonText: '取消',
     })
   } catch { return }
+
+  // 重置状态
+  Object.assign(pushTask, {
+    taskId: '', screenId: row.id, screenTitle: row.title,
+    terminalIp: row.targetGroupName || '终端',
+    progress: 0, phase: '启动中', stepDetail: '正在发起推送请求...',
+    running: true, success: false, errorMsg: '',
+  })
+  pushDialogVisible.value = true
+
   try {
-    const res = await pushToTerminal({
-      screenId: row.id
-    })
-    if (res.code === 0) {
-      ElMessage.success('推送成功')
+    const res = await asyncPushToTerminal({ screenId: row.id })
+    if (res.code === 0 && res.data) {
+      const task = res.data
+      pushTask.taskId = task.taskId
+      pushTask.progress = task.progress
+      pushTask.phase = task.phase
+      pushTask.stepDetail = task.stepDetail
+
+      // 开始轮询进度
+      startPushPolling(task.taskId)
     } else {
-      ElMessage.error('推送失败')
+      pushTask.running = false
+      pushTask.errorMsg = '启动推送失败: ' + (res.msg || '未知错误')
     }
   } catch (e) {
-    ElMessage.error('推送失败')
+    pushTask.running = false
+    pushTask.errorMsg = '请求异常: ' + (e.message || e)
   }
+}
+
+function startPushPolling(taskId) {
+  if (pushPollTimer) clearInterval(pushPollTimer)
+  pushPollTimer = setInterval(async () => {
+    try {
+      const res = await getPushTaskProgress(taskId)
+      if (res.code === 0 && res.data) {
+        const t = res.data
+        pushTask.progress = t.progress
+        pushTask.phase = t.phase
+        pushTask.stepDetail = t.stepDetail
+        pushTask.running = t.running
+        pushTask.success = t.success
+        pushTask.errorMsg = t.errorMsg || ''
+
+        if (!t.running || t.success) {
+          clearInterval(pushPollTimer)
+          pushPollTimer = null
+        }
+      }
+    } catch (e) {
+      // 轮询失败不打断用户，保留当前状态
+      console.warn('推送进度轮询失败:', e)
+    }
+  }, 1500) // 1.5 秒轮询一次
 }
 
 async function handleSchedulePublish(row) {
@@ -232,7 +322,7 @@ async function handleSchedulePublish(row) {
     const d = new Date(value)
     const pad = (n) => String(n).padStart(2, '0')
     const localTime = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`
-    const res = await schedulePublishScreen({
+    const res = await schedulePublish({
       screenId: row.id,
       scheduledPublishTime: localTime,
     })

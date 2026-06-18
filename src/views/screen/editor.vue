@@ -110,7 +110,7 @@
             <template v-if="selectedEl.type==='video'">
               <el-divider style="margin:4px 0;" />
               <el-form-item label="上传视频">
-                <el-upload :auto-upload="false" :show-file-list="false" accept="video/*" @change="(f)=>uploadFile(f,'video')">
+                <el-upload :auto-upload="false" :show-file-list="false" accept="video/*" @change="(f)=>handleFileUpload(f,'video')">
                   <el-button size="small" type="primary">📁 选择文件</el-button>
                 </el-upload>
               </el-form-item>
@@ -131,7 +131,7 @@
             <template v-if="selectedEl.type==='image'">
               <el-divider style="margin:4px 0;" />
               <el-form-item label="上传图片">
-                <el-upload :auto-upload="false" :show-file-list="false" accept="image/*" @change="(f)=>uploadFile(f,'image')">
+                <el-upload :auto-upload="false" :show-file-list="false" accept="image/*" @change="(f)=>handleFileUpload(f,'image')">
                   <el-button size="small" type="primary">📁 选择文件</el-button>
                 </el-upload>
               </el-form-item>
@@ -150,7 +150,7 @@
             <template v-if="selectedEl.type==='carousel'">
               <el-divider style="margin:4px 0;" />
               <el-form-item label="添加图片">
-                <el-upload :auto-upload="false" :show-file-list="false" accept="image/*" @change="(f)=>uploadFile(f,'carousel')">
+                <el-upload :auto-upload="false" :show-file-list="false" accept="image/*" @change="(f)=>handleFileUpload(f,'carousel')">
                   <el-button size="small" type="primary">📁 添加图片</el-button>
                 </el-upload>
               </el-form-item>
@@ -292,7 +292,7 @@
           <el-divider style="margin:8px 0;" />
           <el-form label-position="top" size="small">
             <el-form-item label="背景色"><el-color-picker v-model="backgroundColor" show-alpha @change="onSettingChange" /></el-form-item>
-            <el-form-item label="背景图"><el-upload :auto-upload="false" :show-file-list="false" accept="image/*" @change="(f)=>uploadFile(f,'bg')"><el-button size="small" type="primary">选择文件</el-button></el-upload></el-form-item>
+            <el-form-item label="背景图"><el-upload :auto-upload="false" :show-file-list="false" accept="image/*" @change="(f)=>handleFileUpload(f,'bg')"><el-button size="small" type="primary">选择文件</el-button></el-upload></el-form-item>
             <el-form-item label="背景图URL"><el-input v-model="backgroundImage" placeholder="或输入URL" @input="onSettingChange" /></el-form-item>
             <div v-if="backgroundImage" class="upload-preview"><img :src="resolveMediaUrl(backgroundImage)" style="width:100%;max-height:80px;object-fit:contain;border-radius:4px;" /></div>
             <div class="setting-row"><label>缩放</label><div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;"><el-button size="small" :type="zoom===100?'primary':''" @click="zoom=100">100%</el-button><el-button size="small" :type="zoom===75?'primary':''" @click="zoom=75">75%</el-button><el-button size="small" :type="zoom===50?'primary':''" @click="zoom=50">50%</el-button><el-button size="small" :type="zoom===25?'primary':''" @click="zoom=25">25%</el-button><el-button size="small" type="success" @click="fitScreen">适应窗口</el-button></div></div>
@@ -307,7 +307,7 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getScreenDetail, saveScreen, updateScreen, uploadScreenFile, getServerTerminalList } from '@/api/screen'
+import { getScreenDetail, saveScreen, updateScreen, uploadFile, getServerTerminalList } from '@/api/screen'
 
 const route = useRoute()
 const router = useRouter()
@@ -484,13 +484,13 @@ function onMediaError(e) {
 }
 
 // ==== 文件上传 ====
-async function uploadFile(fileInfo, targetType) {
+async function handleFileUpload(fileInfo, targetType) {
   const rawFile = fileInfo.raw || fileInfo.file || fileInfo
   if (!rawFile) return
   try {
     const form = new FormData()
     form.append('file', rawFile)
-    const res = await uploadScreenFile(form)
+    const res = await uploadFile(form)
     if (res.code === 0 && res.data?.objectName) {
       const name = res.data.objectName
       if (targetType === 'video' && selectedEl.value) {
