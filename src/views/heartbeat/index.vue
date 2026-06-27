@@ -2,13 +2,13 @@
   <div class="page-container">
     <div class="page-title">
       <el-icon><Connection /></el-icon>
-      设备心跳
+      终端设备分组
     </div>
 
     <!-- 统计头部：在线/离线/总数 -->
     <div class="stat-cards">
       <div class="stat-item">
-        <div class="stat-label">终端总数</div>
+        <div class="stat-label">设备总数</div>
         <div class="stat-value total">{{ summary.totalCount ?? '--' }}</div>
       </div>
       <div class="stat-item">
@@ -65,8 +65,7 @@
         <el-table-column prop="equipmentName" label="设备名称" min-width="120" align="center" show-overflow-tooltip />
         <el-table-column label="设备类型" min-width="80" align="center">
           <template #default="{ row }">
-            <el-tag v-if="row.deviceType === 'server'" type="warning" size="small">小终端</el-tag>
-            <el-tag v-else type="primary" size="small">摄像头</el-tag>
+            <el-tag type="primary" size="small">摄像头</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="equipmentId" label="设备ID" min-width="160" align="center" />

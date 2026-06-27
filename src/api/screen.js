@@ -2,11 +2,6 @@ import request from '@/utils/request'
 
 /**
  * 大屏相关 API
- * ======================================================
- * P2 新增：
- *   获取前端配置     GET /api/screen/config
- *   异步推送大屏     POST /api/screen/async-push-to-terminal
- *   查询推送进度     GET /api/screen/push-task-progress?taskId=xxx
  */
 
 /**
@@ -102,10 +97,10 @@ export function getPreviewUrl(objectName) {
   })
 }
 
-// ==================== P2: 异步推送 & 配置 ====================
+// ==================== 异步推送 & 配置 ====================
 
 /**
- * P2: 获取前端配置（MinIO公网地址、bucket等）
+ * 获取前端配置（MinIO公网地址、bucket等）
  */
 export function getScreenConfig() {
   return request({
@@ -115,7 +110,7 @@ export function getScreenConfig() {
 }
 
 /**
- * P2: 异步推送到小终端
+ * 异步推送到小终端
  * @param {{ screenId: string }} data
  */
 export function asyncPushToTerminal(data) {
@@ -127,7 +122,7 @@ export function asyncPushToTerminal(data) {
 }
 
 /**
- * P2: 查询推送任务进度
+ * 查询推送任务进度
  * @param {string} taskId
  */
 export function getPushTaskProgress(taskId) {
@@ -159,17 +154,6 @@ export function getLatestPublished() {
   return request({
     url: '/api/screen/latest',
     method: 'get',
-  })
-}
-
-/**
- * 获取天气
- */
-export function getWeather(city) {
-  return request({
-    url: '/api/screen/weather',
-    method: 'get',
-    params: { city },
   })
 }
 

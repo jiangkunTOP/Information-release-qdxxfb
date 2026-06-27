@@ -18,17 +18,11 @@ const routes = [
         component: () => import('@/views/dashboard/index.vue'),
         meta: { title: '首页', icon: 'Odometer' },
       },
-      // {
-      //   path: 'content',
-      //   name: 'Content',
-      //   component: () => import('@/views/content/index.vue'),
-      //   meta: { title: '内容发布', icon: 'FolderOpened', roles: ['系统管理员', '操作员'] },
-      // },
       {
         path: 'terminal',
         name: 'Terminal',
         component: () => import('@/views/terminal/index.vue'),
-        meta: { title: '终端分组', icon: 'Monitor', roles: ['系统管理员', '操作员'] },
+        meta: { title: '终端设备分组', icon: 'Monitor', roles: ['系统管理员', '操作员'] },
       },
       {
         path: 'heartbeat',
@@ -72,7 +66,19 @@ const routes = [
         component: () => import('@/views/notification/index.vue'),
         meta: { title: '消息通知', icon: 'Bell', roles: ['系统管理员', '操作员'] },
       },
-      // ===== 大屏发布 =====
+      // ===== 中间层网关管理（M6） =====
+      {
+        path: 'gateway',
+        name: 'Gateway',
+        component: () => import('@/views/gateway/index.vue'),
+        meta: { title: '网关管理', icon: 'Connection', roles: ['系统管理员', '操作员'] },
+      },
+      {
+        path: 'gateway/terminal/:deviceId',
+        name: 'GatewayTerminalDetail',
+        component: () => import('@/views/gateway/detail.vue'),
+        meta: { title: '终端详情', icon: 'Monitor' },
+      },
       {
         path: 'screen',
         name: 'Screen',

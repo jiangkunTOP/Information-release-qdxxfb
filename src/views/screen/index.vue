@@ -85,7 +85,7 @@
       </div>
     </div>
 
-    <!-- P2: 异步推送进度条对话框 -->
+
     <el-dialog v-model="pushDialogVisible" title="推送进度" :close-on-click-modal="false" width="450px">
       <div style="text-align: center; padding: 10px 0;">
         <div style="margin-bottom: 12px;">
@@ -177,7 +177,7 @@ async function handlePublish(row) {
   } catch (e) { /* ignore */ }
 }
 
-// ==================== P2: 异步推送（离线包 + 进度条） ====================
+// ==================== 异步推送（离线包 + 进度条） ====================
 
 const pushDialogVisible = ref(false)
 const pushTask = reactive({

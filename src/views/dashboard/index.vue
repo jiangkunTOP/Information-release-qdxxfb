@@ -15,6 +15,13 @@
         </div>
       </div>
       <div class="stat-card">
+        <div class="stat-icon camera"><el-icon size="28"><CloseBold /></el-icon></div>
+        <div class="stat-body">
+          <div class="stat-value">{{ statistics.cameraOfflineCount }}</div>
+          <div class="stat-label">离线摄像头</div>
+        </div>
+      </div>
+      <div class="stat-card">
         <div class="stat-icon server"><el-icon size="28"><Monitor /></el-icon></div>
         <div class="stat-body">
           <div class="stat-value">{{ statistics.serverOnlineCount }}</div>
@@ -24,8 +31,8 @@
       <div class="stat-card">
         <div class="stat-icon offline"><el-icon size="28"><CloseBold /></el-icon></div>
         <div class="stat-body">
-          <div class="stat-value">{{ statistics.cameraOfflineCount }}</div>
-          <div class="stat-label">离线摄像头</div>
+          <div class="stat-value">{{ statistics.serverOfflineCount }}</div>
+          <div class="stat-label">离线小终端</div>
         </div>
       </div>
       <div class="stat-card">
@@ -104,6 +111,7 @@ const statistics = reactive({
   cameraOnlineCount: 0,
   cameraOfflineCount: 0,
   serverOnlineCount: 0,
+  serverOfflineCount: 0,
   onlineCount: 0,
   offlineCount: 0,
   todayAlarmCount: 0
@@ -126,6 +134,7 @@ async function fetchStatistics() {
       statistics.cameraOnlineCount = res.data.cameraOnlineCount || 0
       statistics.cameraOfflineCount = res.data.cameraOfflineCount || 0
       statistics.serverOnlineCount = res.data.serverOnlineCount || 0
+      statistics.serverOfflineCount = res.data.serverOfflineCount || 0
       statistics.onlineCount = res.data.onlineCount || 0
       statistics.offlineCount = res.data.offlineCount || 0
       statistics.todayAlarmCount = res.data.todayAlarmCount || 0
@@ -192,35 +201,43 @@ onMounted(() => {
 
 /* 统计卡片 */
 .stat-cards {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
   gap: 16px;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
 
 .stat-card {
-  flex: 1;
   background: #fff;
-  border-radius: 8px;
-  padding: 20px;
+  border-radius: 10px;
+  padding: 22px 20px;
   display: flex;
   align-items: center;
   gap: 16px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+  border: 1px solid #edf2f7;
+  transition: all 0.25s;
+}
+
+.stat-card:hover {
+  box-shadow: 0 4px 16px rgba(43,108,176,0.08);
+  transform: translateY(-2px);
 }
 
 .stat-icon {
-  width: 56px;
-  height: 56px;
+  width: 52px;
+  height: 52px;
   border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #fff;
+  flex-shrink: 0;
 }
 
-.stat-icon.camera { background: linear-gradient(135deg, #67c23a, #85ce61); }
-.stat-icon.server { background: linear-gradient(135deg, #909399, #b0b4ba); }
-.stat-icon.offline { background: linear-gradient(135deg, #f56c6c, #f89898); }
+.stat-icon.camera { background: linear-gradient(135deg, #48bb78, #68d391); }
+.stat-icon.server { background: linear-gradient(135deg, #718096, #a0aec0); }
+.stat-icon.offline { background: linear-gradient(135deg, #f56565, #fc8181); }
 .stat-icon.alarm { background: linear-gradient(135deg, #e6a23c, #f4d19b); }
 
 .stat-value {
@@ -246,9 +263,10 @@ onMounted(() => {
 
 .page-card {
   background: #fff;
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 20px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+  border: 1px solid #edf2f7;
 }
 
 .card-title {

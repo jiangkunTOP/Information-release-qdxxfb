@@ -49,38 +49,17 @@
               <div v-if="!el.images || !el.images.length" class="placeholder-text">📷 轮播图<br><span style="font-size:11px;opacity:0.6;">点击上传图片</span></div>
             </div>
             <div v-else-if="el.type==='text'" class="el-text" :style="{ fontSize: el.fontSize+'px', color: el.color, fontWeight: el.bold?'bold':'normal', textAlign: el.textAlign||'center', fontFamily: el.fontFamily||'inherit' }">{{ el.content || '文字内容' }}</div>
-            <div v-else-if="el.type==='html'" class="el-html" v-html="el.html || '<div>HTML</div>'"></div>
             <div v-else-if="el.type==='scrollText'" class="el-scroll-text">
               <div class="scroll-inner" :style="{ fontSize: el.fontSize+'px', color: el.color, fontFamily: el.fontFamily||'inherit', background: el.backgroundColor||'transparent', animationDuration: scrollDuration(el) }">{{ el.content || '📜 滚动文字内容' }}</div>
             </div>
-            <div v-else-if="el.type==='marquee'" class="el-marquee">
-              <div class="marquee-inner"
-                   :style="{ fontSize: el.fontSize+'px', color: el.color, fontFamily: el.fontFamily||'inherit', background: el.backgroundColor||'transparent', animationDuration: (el.speed||20)+'s' }" 
-                   :class="{ 'marquee-left': el.direction!=='right', 'marquee-right': el.direction==='right' }">{{ el.content || '🏃 跑马灯文字内容' }}</div>
-            </div>
+
             <div v-else-if="el.type==='clock'" class="el-clock" :style="{ fontSize: el.fontSize+'px', color: el.color, fontFamily: el.fontFamily||'monospace', background: el.backgroundColor||'transparent' }" :class="'clock-'+(el.clockStyle||'digital')">
               <div v-if="el.clockStyle==='simple'" class="clock-simple">{{ currentTimeStr }}</div>
               <div v-else-if="el.clockStyle==='flip'" class="clock-flip"><span class="flip-num">{{ currentTimeStr.slice(0,2) }}</span><span class="flip-sep">:</span><span class="flip-num">{{ currentTimeStr.slice(3,5) }}</span><span class="flip-sep">:</span><span class="flip-num">{{ currentTimeStr.slice(6,8) }}</span></div>
               <div v-else class="clock-digital">{{ currentTimeStr }}</div>
               <div v-if="el.showDate!==false" class="clock-date">{{ currentDateStr }}</div>
             </div>
-            <div v-else-if="el.type==='weather'" class="el-weather" :style="{ fontSize: el.fontSize+'px', color: el.color, background: el.backgroundColor||'transparent', fontFamily: el.fontFamily||'inherit' }" :class="'weather-'+(el.weatherStyle||'simple')">
-              <div v-if="weatherData[el.id]" class="weather-inner">
-                <div v-if="el.weatherStyle==='card'" class="weather-card">
-                  <div class="weather-temp">{{ weatherData[el.id].temp }}°C</div>
-                  <div class="weather-info">{{ weatherData[el.id].text }} · {{ el.city||'' }}</div>
-                </div>
-                <div v-else-if="el.weatherStyle==='icon'" class="weather-icon-layout">
-                  <img v-if="weatherData[el.id].icon" :src="weatherData[el.id].icon" class="weather-icon" />
-                  <div><div class="weather-temp">{{ weatherData[el.id].temp }}°C</div><div class="weather-info">{{ weatherData[el.id].text }} · {{ el.city||'' }}</div></div>
-                </div>
-                <div v-else class="weather-simple">
-                  <div class="weather-temp">{{ weatherData[el.id].temp }}°C</div>
-                  <div class="weather-info">{{ weatherData[el.id].text }} · {{ el.city||'' }}</div>
-                </div>
-              </div>
-              <div v-else class="placeholder-text">🌤 天气组件<br><span style="font-size:11px;">{{ el.city||'选择城市' }}</span></div>
-            </div>
+
           </div>
         </div>
       </div>
@@ -97,7 +76,6 @@
               <el-form-item label="H"><el-input-number v-model="selectedEl.h" :min="20" controls-position="right" style="width:100%;" @change="emitChange" /></el-form-item>
             </div>
 
-            <!-- ===== 布局模式 ===== -->
             <el-divider style="margin:4px 0;" />
             <el-form-item label="布局模式">
               <el-select v-model="selectedEl.layoutMode" style="width:100%;" @change="emitChange">
@@ -106,7 +84,6 @@
               </el-select>
             </el-form-item>
 
-            <!-- ===== 视频属性 ===== -->
             <template v-if="selectedEl.type==='video'">
               <el-divider style="margin:4px 0;" />
               <el-form-item label="上传视频">
@@ -127,7 +104,6 @@
               </div>
             </template>
 
-            <!-- ===== 图片属性 ===== -->
             <template v-if="selectedEl.type==='image'">
               <el-divider style="margin:4px 0;" />
               <el-form-item label="上传图片">
@@ -146,7 +122,6 @@
               </el-form-item>
             </template>
 
-            <!-- ===== 轮播图属性 ===== -->
             <template v-if="selectedEl.type==='carousel'">
               <el-divider style="margin:4px 0;" />
               <el-form-item label="添加图片">
@@ -167,7 +142,6 @@
               </div>
             </template>
 
-            <!-- ===== 文字属性 ===== -->
             <template v-if="selectedEl.type==='text'">
               <el-divider style="margin:4px 0;" />
               <el-form-item label="文字内容"><el-input v-model="selectedEl.content" type="textarea" :rows="3" @input="emitChange" /></el-form-item>
@@ -188,7 +162,6 @@
               </el-form-item>
             </template>
 
-            <!-- ===== 滚动文字属性 ===== -->
             <template v-if="selectedEl.type==='scrollText'">
               <el-divider style="margin:4px 0;" />
               <el-form-item label="文字内容"><el-input v-model="selectedEl.content" type="textarea" :rows="2" @input="emitChange" /></el-form-item>
@@ -208,26 +181,6 @@
                 </el-select>
               </el-form-item>
             </template>
-
-            <!-- ===== 跑马灯属性 ===== -->
-            <template v-if="selectedEl.type==='marquee'">
-              <el-divider style="margin:4px 0;" />
-              <el-form-item label="文字内容"><el-input v-model="selectedEl.content" type="textarea" :rows="2" @input="emitChange" /></el-form-item>
-              <div class="prop-grid">
-                <el-form-item label="字体"><el-select v-model="selectedEl.fontFamily" style="width:100%;" @change="emitChange"><el-option label="默认" value="" /><el-option label="微软雅黑" value="Microsoft YaHei" /><el-option label="宋体" value="SimSun" /><el-option label="Arial" value="Arial, sans-serif" /></el-select></el-form-item>
-                <el-form-item label="字号"><el-input-number v-model="selectedEl.fontSize" :min="12" :max="200" controls-position="right" style="width:100%;" @change="emitChange" /></el-form-item>
-              </div>
-              <div class="prop-grid">
-                <el-form-item label="颜色"><el-color-picker v-model="selectedEl.color" @change="emitChange" /></el-form-item>
-                <el-form-item label="背景色"><el-color-picker v-model="selectedEl.backgroundColor" show-alpha @change="emitChange" /></el-form-item>
-              </div>
-              <div class="prop-grid">
-                <el-form-item label="速度(秒)"><el-input-number v-model="selectedEl.speed" :min="5" :max="200" style="width:100%;" @change="emitChange" /></el-form-item>
-                <el-form-item label="方向"><el-select v-model="selectedEl.direction" style="width:100%;" @change="emitChange"><el-option label="向左" value="left" /><el-option label="向右" value="right" /></el-select></el-form-item>
-              </div>
-            </template>
-
-            <!-- ===== 时间组件属性 ===== -->
             <template v-if="selectedEl.type==='clock'">
               <el-divider style="margin:4px 0;" />
               <el-form-item label="样式">
@@ -246,38 +199,6 @@
                 <el-form-item label="是否显示日期"><el-switch v-model="selectedEl.showDate" @change="emitChange" /></el-form-item>
               </div>
             </template>
-
-            <!-- ===== 天气组件属性 ===== -->
-            <template v-if="selectedEl.type==='weather'">
-              <el-divider style="margin:4px 0;" />
-              <el-form-item label="样式">
-                <el-select v-model="selectedEl.weatherStyle" style="width:100%;" @change="emitChange">
-                  <el-option label="简约" value="simple" />
-                  <el-option label="卡片" value="card" />
-                  <el-option label="图标+文字" value="icon" />
-                </el-select>
-              </el-form-item>
-              <el-form-item label="城市">
-                <el-select v-model="selectedEl.city" filterable allow-create default-first-option style="width:100%;" @change="onCityChange">
-                  <el-option v-for="c in popularCities" :key="c" :label="c" :value="c" />
-                </el-select>
-              </el-form-item>
-              <div class="prop-grid">
-                <el-form-item label="字体"><el-select v-model="selectedEl.fontFamily" style="width:100%;" @change="emitChange"><el-option label="默认" value="" /><el-option label="微软雅黑" value="Microsoft YaHei" /></el-select></el-form-item>
-                <el-form-item label="字号"><el-input-number v-model="selectedEl.fontSize" :min="14" :max="60" controls-position="right" style="width:100%;" @change="emitChange" /></el-form-item>
-              </div>
-              <div class="prop-grid">
-                <el-form-item label="颜色"><el-color-picker v-model="selectedEl.color" @change="emitChange" /></el-form-item>
-                <el-form-item label="背景色"><el-color-picker v-model="selectedEl.backgroundColor" show-alpha @change="emitChange" /></el-form-item>
-              </div>
-            </template>
-
-            <!-- ===== HTML属性 ===== -->
-            <template v-if="selectedEl.type==='html'">
-              <el-divider style="margin:4px 0;" />
-              <el-form-item label="HTML代码"><el-input v-model="selectedEl.html" type="textarea" :rows="6" @input="emitChange" placeholder="<div>...</div>" /></el-form-item>
-            </template>
-
             <el-divider style="margin:8px 0;" />
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
               <el-button size="small" @click="copyElement" style="flex:1;">📋 复制</el-button>
@@ -336,19 +257,13 @@ const componentTypes = [
   { type: 'image', icon: '🖼', label: '图片' },
   { type: 'carousel', icon: '📷', label: '轮播图' },
   { type: 'text', icon: '📝', label: '文字' },
-  { type: 'html', icon: '🔮', label: 'HTML' },
   { type: 'scrollText', icon: '📜', label: '滚动文本' },
-  { type: 'marquee', icon: '🏃', label: '跑马灯' },
   { type: 'clock', icon: '🕐', label: '时间' },
-  { type: 'weather', icon: '🌤', label: '天气' },
 ]
-
-const popularCities = ['北京','上海','广州','深圳','杭州','成都','武汉','南京','重庆','青岛','大连','厦门','长沙','西安','苏州','天津','郑州','宁波','昆明']
 
 // ==== 运行时状态 ====
 const currentTimeStr = ref('')
 const currentDateStr = ref('')
-const weatherData = reactive({})
 const carouselState = reactive({})
 let allCarouselTimers = {}
 let clockTimer = null
@@ -459,14 +374,6 @@ function fitScreen() {
   zoom.value = Math.round(Math.min(Math.max(s * 100, 10), 200))
 }
 
-function onCityChange() {
-  emitChange()
-  const el = selectedEl.value
-  if (el && el.type === 'weather' && el.city) {
-    fetchWeatherForElement(el)
-  }
-}
-
 function onWindowResize() {
   clearTimeout(window._resizeTimer)
   window._resizeTimer = setTimeout(fitScreen, 300)
@@ -544,12 +451,11 @@ async function onDrop(e) {
   dirty.value = true
   clampAllElements()
   startCarouselForElement(el)
-  fetchWeatherForElement(el)
 }
 
 function createElement(type, x, y) {
   const pw = pageWidth.value, ph = pageHeight.value
-  const sizes = { video:[480,360], image:[480,360], carousel:[960,540], text:[400,100], html:[600,300], scrollText:[900,80], marquee:[900,60], clock:[250,100], weather:[300,160] }
+  const sizes = { video:[480,360], image:[480,360], carousel:[960,540], text:[400,100], scrollText:[900,80], clock:[250,100] }
   let defW = 300, defH = 200
   if (sizes[type]) { defW = sizes[type][0]; defH = sizes[type][1] }
   if (x === undefined) x = Math.round((pw - defW) / 2)
@@ -563,11 +469,8 @@ function createElement(type, x, y) {
   else if (type === 'image') { base.src = ''; base.opacity = 1 }
   else if (type === 'carousel') { base.images = []; base.interval = 3 }
   else if (type === 'text') { base.content = ''; base.fontSize = 28; base.color = '#ffffff'; base.bold = false; base.textAlign = 'center'; base.fontFamily = '' }
-  else if (type === 'html') { base.html = '' }
   else if (type === 'scrollText') { base.content = ''; base.fontSize = 24; base.color = '#ffffff'; base.backgroundColor = 'transparent'; base.speed = 'medium'; base.fontFamily = '' }
-  else if (type === 'marquee') { base.content = ''; base.fontSize = 28; base.color = '#ffcc00'; base.backgroundColor = 'transparent'; base.speed = 20; base.direction = 'left'; base.fontFamily = '' }
   else if (type === 'clock') { base.fontSize = 36; base.color = '#00ffcc'; base.fontFamily = 'monospace'; base.clockStyle = 'digital'; base.showDate = true; base.backgroundColor = 'transparent' }
-  else if (type === 'weather') { base.city = '上海'; base.fontSize = 24; base.color = '#ffffff'; base.backgroundColor = 'transparent'; base.weatherStyle = 'simple'; base.fontFamily = '' }
 
   return base
 }
@@ -677,7 +580,6 @@ function copyElement() {
   selectedIdx.value = elements.value.length - 1
   dirty.value = true
   startCarouselForElement(copy)
-  fetchWeatherForElement(copy)
 }
 
 function removeElement() {
@@ -726,27 +628,6 @@ function startCarouselForElement(el) {
   }, interval)
 }
 
-// ==== 天气 ====
-async function fetchWeatherForElement(el) {
-  if (el.type !== 'weather' || !el.city) return
-  try {
-    const url = '/api/screen/weather?city=' + encodeURIComponent(el.city)
-    const res = await fetch(url)
-    const data = await res.json()
-    if (data.code === 0 && data.data) {
-      weatherData[el.id] = data.data
-    }
-  } catch (e) {
-    console.warn('[ScreenEditor] 天气数据加载失败:', e?.message || e)
-  }
-}
-
-function handleCityChange(val) {
-  if (selectedEl.value) selectedEl.value.city = val
-  dirty.value = true
-  if (selectedEl.value) fetchWeatherForElement(selectedEl.value)
-}
-
 // ==== 滚动文本速度 ====
 function scrollDuration(el) {
   const map = { slow: '40s', medium: '20s', fast: '10s' }
@@ -776,7 +657,7 @@ async function loadRecord(id) {
         } else {
           elements.value = []
         }
-        elements.value.forEach(el => { startCarouselForElement(el); fetchWeatherForElement(el) })
+        elements.value.forEach(el => { startCarouselForElement(el) })
         await nextTick()
         fitScreen()
         return  // 加载成功
@@ -1034,7 +915,7 @@ function goBack() {
   overflow: hidden;
   pointer-events: none;
 }
-.el-html { width: 100%; height: 100%; overflow: auto; pointer-events: none; }
+
 .el-scroll-text { width: 100%; height: 100%; overflow: hidden; pointer-events: none; }
 .scroll-inner {
   display: inline-block;
@@ -1046,16 +927,7 @@ function goBack() {
   0% { transform: translateX(0); }
   100% { transform: translateX(-100%); }
 }
-.el-marquee { width: 100%; height: 100%; overflow: hidden; white-space: nowrap; pointer-events: none; }
-.marquee-inner {
-  display: inline-block;
-  white-space: nowrap;
-  padding: 4px 0;
-}
-.marquee-left { animation: marqueeLeft linear infinite; }
-.marquee-right { animation: marqueeRight linear infinite; }
-@keyframes marqueeLeft { 0% { transform: translateX(0); } 100% { transform: translateX(-100%); } }
-@keyframes marqueeRight { 0% { transform: translateX(0); } 100% { transform: translateX(100%); } }
+
 .clock-digital { font-weight: bold; letter-spacing: 3px; text-shadow: 0 0 20px currentColor; }
 .clock-simple { font-weight: 300; letter-spacing: 2px; }
 .clock-flip { display: flex; align-items: center; justify-content: center; gap: 4px; }
@@ -1072,13 +944,7 @@ function goBack() {
   text-shadow: 0 0 10px rgba(0,255,204,0.3);
   pointer-events: none;
 }
-.el-weather { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; pointer-events: none; }
-.weather-card { background: rgba(255,255,255,0.1); border-radius: 12px; padding: 12px 20px; backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.15); }
-.weather-icon-layout { display: flex; align-items: center; gap: 8px; }
-.weather-icon { width: 48px; height: 48px; }
-.weather-inner { text-align: center; }
-.weather-temp { font-size: 1.5em; font-weight: bold; }
-.weather-info { font-size: 0.7em; opacity: 0.8; margin-top: 4px; }
+
 .prop-body { padding: 8px 12px; overflow-y: auto; flex: 1; }
 .prop-body.no-selection { }
 .no-select-hint { font-size: 12px; color: #666; text-align: center; padding: 20px 0; }

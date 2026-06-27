@@ -42,6 +42,13 @@
             <el-tag v-else type="primary" size="small">摄像头</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="品牌" min-width="70" align="center">
+          <template #default="{ row }">
+            <template v-if="row.deviceType === 'server'">—</template>
+            <el-tag v-else-if="row.manufacturer === 'dahua'" type="success" size="small">大华</el-tag>
+            <el-tag v-else type="info" size="small">海康</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="ipAddress" label="设备IP" min-width="130" align="center" />
         <el-table-column prop="port" label="端口" min-width="80" align="center" />
         <el-table-column prop="group" label="分组" min-width="120" align="center" />
@@ -150,9 +157,15 @@
     >
       <el-form ref="formRef" :model="form" :rules="formRules" label-width="120px">
         <el-form-item label="设备类型" prop="deviceType">
-          <el-radio-group v-model="form.deviceType">
+          <el-radio-group v-model="form.deviceType" @change="onDeviceTypeChange">
             <el-radio value="camera">摄像头</el-radio>
             <el-radio value="server">小终端</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="品牌" prop="manufacturer" v-if="form.deviceType === 'camera'">
+          <el-radio-group v-model="form.manufacturer" @change="onManufacturerChange">
+            <el-radio value="hikvision">海康威视</el-radio>
+            <el-radio value="dahua">大华</el-radio>
           </el-radio-group>
         </el-form-item>
         <el-form-item label="设备名称" prop="equipmentName">
@@ -190,6 +203,11 @@
           <el-tag v-if="viewData.deviceType === 'server'" type="warning" size="small">小终端</el-tag>
           <el-tag v-else type="primary" size="small">摄像头</el-tag>
         </el-descriptions-item>
+        <el-descriptions-item label="品牌">
+          <template v-if="viewData.deviceType === 'server'">—</template>
+          <el-tag v-else-if="viewData.manufacturer === 'dahua'" type="success" size="small">大华</el-tag>
+          <el-tag v-else type="info" size="small">海康</el-tag>
+        </el-descriptions-item>
         <el-descriptions-item label="设备ID">{{ viewData.equipmentId || '-' }}</el-descriptions-item>
         <el-descriptions-item label="设备名称">{{ viewData.equipmentName || '-' }}</el-descriptions-item>
         <el-descriptions-item label="分组">{{ viewData.group || '-' }}</el-descriptions-item>
@@ -214,7 +232,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getTerminalList, getTerminalDetail, addTerminal, updateTerminal, deleteTerminal, loginDevice, logoutDevice, armDevice, disarmDevice } from '@/api/terminal'
 import { Monitor } from '@element-plus/icons-vue'
@@ -223,6 +241,17 @@ const loading = ref(false)
 const submitting = ref(false)
 const list = ref([])
 const total = ref(0)
+
+// 自动刷新
+let autoRefreshTimer = null
+const AUTO_REFRESH_INTERVAL = 5000 // 5秒
+
+onUnmounted(() => {
+  if (autoRefreshTimer) {
+    clearInterval(autoRefreshTimer)
+    autoRefreshTimer = null
+  }
+})
 const dialogVisible = ref(false)
 const viewVisible = ref(false)
 const viewData = ref({})
@@ -241,6 +270,7 @@ const defaultForm = {
   equipmentId: '',
   equipmentName: '',
   deviceType: 'camera',
+  manufacturer: 'hikvision',
   ipAddress: '',
   port: 8000,
   equipmentAccount: '',
@@ -256,8 +286,8 @@ const formRules = {
   ipAddress: [{ required: true, message: '请输入IP地址', trigger: 'blur' }],
 }
 
-const fetchList = async () => {
-  loading.value = true
+const fetchList = async (isManual = false) => {
+  if (isManual) loading.value = true
   try {
     const res = await getTerminalList({
       pageNum: query.pageNum,
@@ -272,7 +302,7 @@ const fetchList = async () => {
   } catch (err) {
     console.error('获取终端列表失败:', err)
   } finally {
-    loading.value = false
+    if (isManual) loading.value = false
   }
 }
 
@@ -286,19 +316,39 @@ function formatTime(val) {
 
 const handleSearch = () => {
   query.pageNum = 1
-  fetchList()
+  fetchList(true)
 }
 
 const handleReset = () => {
   query.keyword = ''
   query.scbj = '0'
   query.pageNum = 1
-  fetchList()
+  fetchList(true)
+}
+
+const onDeviceTypeChange = (val) => {
+  if (val === 'server') {
+    form.manufacturer = ''
+  } else {
+    form.manufacturer = 'hikvision'
+    form.port = 8000
+  }
+}
+
+const onManufacturerChange = (val) => {
+  if (val === 'dahua') {
+    form.port = 37777
+  } else {
+    form.port = 8000
+  }
 }
 
 const handleAdd = () => {
   isEdit.value = false
   Object.assign(form, { ...defaultForm })
+  // 新增摄像头默认海康，端口8000
+  form.manufacturer = 'hikvision'
+  form.port = 8000
   dialogVisible.value = true
 }
 
@@ -325,6 +375,7 @@ const handleEdit = async (row) => {
         equipmentId: d.equipmentId,
         equipmentName: d.equipmentName,
         deviceType: d.deviceType || 'camera',
+        manufacturer: d.manufacturer || (d.deviceType === 'server' ? '' : 'hikvision'),
         ipAddress: d.ipAddress,
         port: d.port,
         equipmentAccount: d.equipmentAccount,
@@ -337,6 +388,7 @@ const handleEdit = async (row) => {
         equipmentId: row.equipmentId,
         equipmentName: row.equipmentName,
         deviceType: row.deviceType || 'camera',
+        manufacturer: row.manufacturer || (row.deviceType === 'server' ? '' : 'hikvision'),
         ipAddress: row.ipAddress,
         port: row.port,
         equipmentAccount: row.equipmentAccount || '',
@@ -360,7 +412,7 @@ const handleDelete = (row) => {
       const res = await deleteTerminal({ id: row.id })
       if (res.code === 0) {
         ElMessage.success('删除成功')
-        fetchList()
+        fetchList(true)
       }
     } catch (err) {
       console.error('删除失败:', err)
@@ -373,7 +425,7 @@ const handleLogin = async (row) => {
     const res = await loginDevice(row.equipmentId)
     if (res.code === 0) {
       ElMessage.success('设备登录成功')
-      fetchList()
+      fetchList(true)
     }
   } catch (err) {
     console.error('设备登录失败:', err)
@@ -385,7 +437,7 @@ const handleLogout = async (row) => {
     const res = await logoutDevice(row.equipmentId)
     if (res.code === 0) {
       ElMessage.success('设备登出成功')
-      fetchList()
+      fetchList(true)
     }
   } catch (err) {
     console.error('设备登出失败:', err)
@@ -402,7 +454,7 @@ const handleArm = async (row) => {
       const res = await armDevice({ equipmentId: row.equipmentId })
       if (res.code === 0) {
         ElMessage.success('布防成功，设备已进入监控状态，触发报警时将自动抓拍')
-        fetchList()
+        fetchList(true)
       } else {
         ElMessage.error(res.msg || '布防失败')
       }
@@ -423,7 +475,7 @@ const handleDisarm = async (row) => {
       const res = await disarmDevice({ equipmentId: row.equipmentId })
       if (res.code === 0) {
         ElMessage.success('设备撤防成功')
-        fetchList()
+        fetchList(true)
       }
     } catch (err) {
       console.error('设备撤防失败:', err)
@@ -442,6 +494,7 @@ const handleSubmit = async () => {
       const payload = {
         equipmentName: form.equipmentName,
         deviceType: form.deviceType,
+        manufacturer: form.manufacturer,
         ipAddress: form.ipAddress,
         port: form.port,
         equipmentAccount: form.equipmentAccount,
@@ -458,7 +511,7 @@ const handleSubmit = async () => {
       if (res.code === 0) {
         ElMessage.success(isEdit.value ? '修改成功' : '新增成功')
         dialogVisible.value = false
-        fetchList()
+        fetchList(true)
       }
     } catch (err) {
       console.error('提交失败:', err)
@@ -469,7 +522,13 @@ const handleSubmit = async () => {
 }
 
 onMounted(() => {
-  fetchList()
+  fetchList(true)
+  // 启动自动刷新（弹窗打开时不刷新，不影响操作）
+  autoRefreshTimer = setInterval(() => {
+    if (!dialogVisible.value) {
+      fetchList()
+    }
+  }, AUTO_REFRESH_INTERVAL)
 })
 </script>
 

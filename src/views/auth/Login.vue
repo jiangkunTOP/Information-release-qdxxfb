@@ -3,11 +3,13 @@
     <div class="login-card">
       <div class="login-left">
         <div class="welcome">
-          <div class="welcome-icon">
-            <el-icon :size="48"><Promotion /></el-icon>
+          <div class="welcome-logo">
+            <img src="/logo.png" alt="logo" />
           </div>
-          <h2>信息发布系统</h2>
-          <p>终端信息发布管理平台</p>
+          <h2 class="welcome-title">信息发布平台</h2>
+          <p class="welcome-en">Information Release Platform</p>
+          <div class="welcome-divider"></div>
+          <p class="welcome-motto">务本求实 · 明理创新</p>
         </div>
       </div>
 
@@ -15,7 +17,6 @@
         <div class="form-wrap">
           <div class="form-header">
             <h3>用户登录</h3>
-            <p>请输入您的账号信息</p>
           </div>
 
           <el-form
@@ -59,6 +60,10 @@
               </el-button>
             </el-form-item>
           </el-form>
+
+          <div class="form-footer">
+            <span>首次使用请与管理员联系获取账号</span>
+          </div>
         </div>
       </div>
     </div>
@@ -70,7 +75,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { ElMessage } from 'element-plus'
-import { User, Lock, Promotion, FolderOpened, Monitor, Camera } from '@element-plus/icons-vue'
+import { User, Lock } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -83,7 +88,6 @@ const form = reactive({
   password: '',
 })
 
-// 页面加载后强制清空浏览器自动填充（浏览器在 DOM 渲染后还会填一次，所以延迟执行）
 onMounted(() => {
   setTimeout(() => {
     const pwd = document.querySelector('[data-login-field="password"]')
@@ -102,15 +106,12 @@ const handleLogin = async () => {
   if (!formRef.value) return
   await formRef.value.validate(async (valid) => {
     if (!valid) return
-
     loading.value = true
     try {
-      // 手动取输入框真实值，避免浏览器自动填充的脏数据
       const userNameInput = document.querySelector('[data-login-field="userName"]')
       const passwordInput = document.querySelector('[data-login-field="password"]')
       const realUserName = userNameInput ? userNameInput.value : form.userName
       const realPassword = passwordInput ? passwordInput.value : form.password
-
       const res = await userStore.login({
         userName: realUserName,
         password: realPassword,
@@ -134,77 +135,115 @@ const handleLogin = async () => {
   display: flex;
   justify-content: center;
   align-items: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #f0f4f8;
   padding: 24px;
 }
 
 .login-card {
   display: flex;
-  width: 820px;
-  min-height: 480px;
+  width: 860px;
+  min-height: 520px;
   background: #fff;
-  border-radius: 16px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
   overflow: hidden;
 }
 
+/* ====== 左侧：学校品牌区 ====== */
 .login-left {
-  width: 45%;
-  background: linear-gradient(135deg, #3a7bd5 0%, #00d2ff 100%);
-  padding: 48px 32px;
+  width: 44%;
+  background: linear-gradient(160deg, #1a365d 0%, #2b6cb0 50%, #4299e1 100%);
   display: flex;
-  flex-direction: column;
+  align-items: center;
   justify-content: center;
-  color: #fff;
+  padding: 40px 32px;
+  position: relative;
+  overflow: hidden;
+
+  /* 背景装饰 */
+  &::before {
+    content: '';
+    position: absolute;
+    top: -60%;
+    right: -30%;
+    width: 400px;
+    height: 400px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
+    bottom: -40%;
+    left: -20%;
+    width: 300px;
+    height: 300px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.04);
+  }
 
   .welcome {
-    .welcome-icon {
-      margin-bottom: 16px;
-    }
+    text-align: center;
+    position: relative;
+    z-index: 1;
+    color: #fff;
 
-    h2 {
-      font-size: 22px;
-      margin-bottom: 8px;
-    }
+    .welcome-logo {
+      margin-bottom: 20px;
 
-    p {
-      font-size: 14px;
-      opacity: 0.9;
-      margin-bottom: 40px;
-    }
-
-    ul {
-      list-style: none;
-      padding: 0;
-
-      li {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        font-size: 14px;
-        margin-bottom: 20px;
-
-        .el-icon {
-          font-size: 18px;
-          background: rgba(255, 255, 255, 0.2);
-          padding: 8px;
-          border-radius: 50%;
-        }
+      img {
+        width: auto;
+        height: 88px;
+        border-radius: 8px;
       }
+    }
+
+    .welcome-title {
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      margin-bottom: 8px;
+      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .welcome-en {
+      font-size: 12px;
+      opacity: 0.5;
+      letter-spacing: 2px;
+      font-weight: 300;
+      text-transform: uppercase;
+      margin-bottom: 28px;
+    }
+
+    .welcome-divider {
+      width: 40px;
+      height: 2px;
+      background: rgba(255, 255, 255, 0.3);
+      margin: 0 auto 20px;
+      border-radius: 1px;
+    }
+
+    .welcome-motto {
+      font-size: 14px;
+      opacity: 0.65;
+      letter-spacing: 4px;
+      font-weight: 300;
     }
   }
 }
 
+/* ====== 右侧：登录表单 ====== */
 .login-right {
-  width: 55%;
-  padding: 48px 40px;
+  width: 56%;
+  padding: 56px 48px;
   display: flex;
   flex-direction: column;
   justify-content: center;
 
   .form-wrap {
     width: 100%;
-    max-width: 340px;
+    max-width: 360px;
     margin: 0 auto;
 
     .form-header {
@@ -212,21 +251,56 @@ const handleLogin = async () => {
 
       h3 {
         font-size: 22px;
-        color: #303133;
-        margin-bottom: 8px;
+        font-weight: 600;
+        color: #1a202c;
+        margin-bottom: 28px;
+      }
+    }
+
+    :deep(.el-input__wrapper) {
+      border-radius: 8px;
+      box-shadow: 0 0 0 1px #e2e8f0 inset;
+      transition: box-shadow 0.25s;
+      padding: 2px 12px;
+
+      &:hover {
+        box-shadow: 0 0 0 1px #4299e1 inset;
       }
 
-      p {
-        font-size: 14px;
-        color: #909399;
+      &.is-focus {
+        box-shadow: 0 0 0 2px #2b6cb0 inset;
       }
     }
 
     .login-btn {
       width: 100%;
-      height: 44px;
+      height: 46px;
       font-size: 16px;
+      font-weight: 500;
       border-radius: 8px;
+      background: linear-gradient(135deg, #2b6cb0, #4299e1);
+      border: none;
+      letter-spacing: 6px;
+      transition: all 0.3s;
+
+      &:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 6px 20px rgba(43, 108, 176, 0.25);
+      }
+
+      &:active {
+        transform: translateY(0);
+      }
+    }
+
+    .form-footer {
+      margin-top: 24px;
+      text-align: center;
+
+      span {
+        font-size: 12px;
+        color: #cbd5e0;
+      }
     }
   }
 }

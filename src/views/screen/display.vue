@@ -14,42 +14,17 @@
           <img v-for="(img, ci) in (el.images||[])" :key="ci" :src="resolveMediaUrl(img)" style="width:100%;height:100%;object-fit:contain;position:absolute;left:0;top:0;" :style="{ opacity: carouselIdx(el.id)===ci ? 1 : 0, transition: 'opacity .6s' }" />
         </div>
         <div v-else-if="el.type==='text'" class="el-text" :style="{ fontSize: el.fontSize+'px', color: el.color, fontWeight: el.bold?'bold':'normal', textAlign: el.textAlign||'center', fontFamily: el.fontFamily||'inherit' }">{{ el.content || '' }}</div>
-        <div v-else-if="el.type==='html'" class="el-html" v-html="el.html || ''"></div>
         <div v-else-if="el.type==='scrollText'" class="el-scroll-text">
           <div class="scroll-inner" :style="{ fontSize: el.fontSize+'px', color: el.color, fontFamily: el.fontFamily||'inherit', background: el.backgroundColor||'transparent', animationDuration: scrollDuration(el) }">{{ el.content || '' }}</div>
         </div>
-        <div v-else-if="el.type==='marquee'" class="el-marquee">
-          <div class="marquee-inner" :style="{ fontSize: el.fontSize+'px', color: el.color, fontFamily: el.fontFamily||'inherit', background: el.backgroundColor||'transparent', animationDuration: (el.speed||20)+'s' }" :class="{ 'marquee-left': el.direction!=='right', 'marquee-right': el.direction==='right' }">{{ el.content || '' }}</div>
-        </div>
+
         <div v-else-if="el.type==='clock'" class="el-clock" :style="{ fontSize: el.fontSize+'px', color: el.color, fontFamily: el.fontFamily||'monospace', background: el.backgroundColor||'transparent' }" :class="'clock-'+(el.clockStyle||'digital')">
               <div v-if="el.clockStyle==='simple'" class="clock-simple">{{ currentTimeStr }}</div>
               <div v-else-if="el.clockStyle==='flip'" class="clock-flip"><span class="flip-num">{{ currentTimeStr.slice(0,2) }}</span><span class="flip-sep">:</span><span class="flip-num">{{ currentTimeStr.slice(3,5) }}</span><span class="flip-sep">:</span><span class="flip-num">{{ currentTimeStr.slice(6,8) }}</span></div>
               <div v-else class="clock-digital">{{ currentTimeStr }}</div>
               <div v-if="el.showDate!==false" class="clock-date">{{ currentDateStr }}</div>
             </div>
-        <!-- P1 天气改造：去掉非法 class 语法（原 class 属性中嵌入了 CSS 声明块）
-             改用纯 :style 内联绑定。天气数据走后端代理返回的 JSON 结构，
-             字段为 { temp, text, icon, raw }。以 raw 纯文本方式展示。 -->
-        <div v-else-if="el.type==='weather'" class="el-weather"
-          :style="{
-            fontSize: el.fontSize ? el.fontSize + 'px' : '20px',
-            color: el.color || '#ffffff',
-            background: el.backgroundColor || 'transparent',
-            fontFamily: el.fontFamily || 'inherit',
-          }">
-          <div v-if="weatherData[el.id]"
-            :style="{
-              borderRadius: '12px',
-              padding: '12px 20px',
-              backdropFilter: 'blur(4px)',
-              border: '1px solid rgba(255,255,255,0.15)',
-              background: 'rgba(255,255,255,0.1)',
-            }">
-            <div style="font-size:24px;font-weight:bold;margin-bottom:4px;">
-              {{ weatherData[el.id].raw || (weatherData[el.id].temp + '\u00B0C ' + (weatherData[el.id].text||'')) }}
-            </div>
-          </div>
-        </div>
+
       </div>
     </div>
   </div>
@@ -70,15 +45,14 @@ const backgroundColor = ref('#000000')
 const backgroundImage = ref('')
 const currentTimeStr = ref('')
 const currentDateStr = ref('')
-const weatherData = reactive({})
+
 const carouselState = reactive({})
 const scale = ref(1)
 /** 轮播定时器集合 */
 let allCarouselTimers = {}
 /** 时钟定时器 */
 let clockTimer = null
-/** 天气轮询定时器 */
-let weatherTimer = null
+
 /** 容灾重试定时器 */
 let retryTimer = null
 /** D12: WebSocket 心跳定时器（每 25s 发 PING） */
@@ -150,53 +124,6 @@ function startCarouselForElement(el) {
 }
 
 function scrollDuration(el) { const m = { slow:'40s', medium:'20s', fast:'10s' }; return m[el.speed] || '20s' }
-
-/** 天气组件数据拉取 */
-/**
- * P1 天气数据拉取（先走代理，不直连公网）
- *
- * 当前方案：优先通过后端代理 /api/screen/weather → wttr.in
- *   原因：终端浏览器直连 wttr.in 时可能被网络层返回非预期内容（如 CSS/HTML），
- *   导致页面显示"一串代码"。先走后端代理保证稳定。
- *
- * P2 离线化改造时改为：终端 server.py 本地代理天气请求，实现完全离线。
- */
-async function fetchWeatherForElement(el) {
-  if (el.type !== 'weather' || !el.city) return
-  try {
-    const res = await fetch('/api/screen/weather?city=' + encodeURIComponent(el.city))
-    const data = await res.json()
-    if (data.code === 0 && data.data) {
-      weatherData[el.id] = data.data
-    }
-  } catch (e) {
-    console.warn('[ScreenDisplay] 天气数据加载失败:', e?.message || e)
-    // 不设置 fallback，保持之前的 weatherData[el.id] 为 undefined，
-    // 模板中 v-if="weatherData[el.id]" 为 false，不显示天气（保持面板空白）
-  }
-}
-
-/** 启动所有天气组件的轮询（30 分钟） */
-function startWeatherPolling() {
-  stopWeatherPolling()
-  weatherTimer = setInterval(() => {
-    // P1 优化：串行拉取天气，避免低功耗设备并发请求卡顿
-    const weatherEls = elements.value.filter(el => el.type === 'weather')
-    ;(async function() {
-      for (const el of weatherEls) {
-        await fetchWeatherForElement(el)
-        await new Promise(r => setTimeout(r, 300))
-      }
-    })()
-  }, 30 * 60 * 1000)
-}
-
-function stopWeatherPolling() {
-  if (weatherTimer) {
-    clearInterval(weatherTimer)
-    weatherTimer = null
-  }
-}
 
 function doScale() {
   const el = rootRef.value
@@ -346,20 +273,6 @@ function renderScreenData(data) {
   if (data.layoutJson) {
     try { elements.value = JSON.parse(data.layoutJson) || [] } catch (e) { elements.value = [] }
     elements.value.forEach(el => { startCarouselForElement(el) })
-    // P1 优化：天气请求从并发（Promise.all）改为串行逐一请求
-    // 树莓派等低功耗设备同时发起多个 HTTP 请求会导致 CPU 满载、页面卡顿
-    // 每个请求间隔 300ms 给浏览器喘息时间
-    const weatherElements = elements.value.filter(el => el.type === 'weather')
-    ;(async function() {
-      for (const el of weatherElements) {
-        try {
-          await fetchWeatherForElement(el)
-        } catch (e) {
-          console.warn('[ScreenDisplay] 天气请求失败:', el?.id, e?.message || e)
-        }
-        await new Promise(r => setTimeout(r, 300))
-      }
-    })()
   }
 }
 
@@ -439,8 +352,6 @@ onMounted(async () => {
 
   await loadScreenData()
 
-  // 启动天气轮询
-  startWeatherPolling()
   // 预检背景物料可用性
   if (backgroundImage.value) {
     loadBackgroundMaterial(backgroundImage.value)
@@ -458,8 +369,6 @@ onBeforeUnmount(() => {
   // 清理轮播
   Object.values(allCarouselTimers).forEach(t => clearInterval(t))
   allCarouselTimers = {}
-  // 清理天气轮询
-  stopWeatherPolling()
   // 清理容灾重试
   if (retryTimer) {
     clearTimeout(retryTimer)
@@ -489,24 +398,13 @@ html, body, #app { width: 100%; height: 100%; overflow: hidden; }
 .display-element { box-sizing: border-box; }
 .carousel-wrap { position: relative; width: 100%; height: 100%; }
 .el-text { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; padding: 8px; box-sizing: border-box; word-break: break-all; }
-.el-html { width: 100%; height: 100%; overflow: auto; }
+
 .el-scroll-text { width: 100%; height: 100%; overflow: hidden; }
 .scroll-inner { display: inline-block; white-space: nowrap; animation: scrollText linear infinite; padding: 4px 0; }
 @keyframes scrollText { 0% { transform: translateX(0); } 100% { transform: translateX(-100%); } }
-.el-marquee { width: 100%; height: 100%; overflow: hidden; white-space: nowrap; }
-.marquee-inner { display: inline-block; white-space: nowrap; padding: 4px 0; }
-.marquee-left { animation: marqueeLeft linear infinite; }
-.marquee-right { animation: marqueeRight linear infinite; }
-@keyframes marqueeLeft { 0% { transform: translateX(0); } 100% { transform: translateX(-100%); } }
-@keyframes marqueeRight { 0% { transform: translateX(0); } 100% { transform: translateX(100%); } }
+
 .el-clock { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; }
-.el-weather { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
-.weather-card { background: rgba(255,255,255,0.1); border-radius: 12px; padding: 12px 20px; backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.15); }
-.weather-icon-layout { display: flex; align-items: center; gap: 8px; }
-.weather-icon { width: 48px; height: 48px; }
-.weather-inner { text-align: center; }
-.weather-temp { font-size: 1.5em; font-weight: bold; }
-.weather-info { font-size: 0.7em; opacity: 0.8; margin-top: 4px; }
+
 
 /* D9: 安全兜底模式 */
 .safety-fallback {

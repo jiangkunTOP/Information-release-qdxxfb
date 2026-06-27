@@ -26,17 +26,31 @@ a {
   text-decoration: none;
 }
 
+/* =========================================================
+   Element-Plus 主题色统一
+   ========================================================= */
+:root {
+  --el-color-primary: var(--color-primary);
+  --el-color-primary-light-3: var(--color-primary-light);
+  --el-color-primary-dark-2: var(--color-primary-dark);
+  --el-color-primary-light-9: var(--color-primary-bg);
+  --el-border-radius-base: var(--radius-sm);
+  --el-font-size-base: var(--font-size-sm);
+  --el-border-color-light: var(--border-light);
+}
+
 /* 页面公共间距 */
 .page-container {
   padding: var(--space-lg);
 }
 
-/* 卡片容器 */
+/* 卡片容器 —— 校园风圆润卡片 */
 .page-card {
   background: var(--bg-white);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   padding: var(--space-lg);
   box-shadow: var(--shadow-light);
+  border: 1px solid var(--border-light);
 }
 
 /* 搜索/筛选栏 */
@@ -86,6 +100,15 @@ a {
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: var(--space-md);
   margin-bottom: var(--space-lg);
+}
+
+/* =========================================================
+   所有分页组件统一居右下角
+   ========================================================= */
+.el-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-md);
 }
 
 /* 过渡动画 */

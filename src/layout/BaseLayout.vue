@@ -3,10 +3,8 @@
     <!-- 侧边栏 -->
     <aside class="sidebar" :class="{ collapsed: isCollapsed }">
       <div class="brand">
-        <div class="brand-icon">
-          <span class="brand-short">信发</span>
-        </div>
-        <span class="brand-text" v-show="!isCollapsed">信息发布系统</span>
+        <img src="/logo.png" class="brand-logo" alt="logo" />
+        <span class="brand-text" v-show="!isCollapsed">信息发布平台</span>
       </div>
 
       <el-menu
@@ -22,16 +20,18 @@
           <template #title>首页</template>
         </el-menu-item>
 
-        <!-- 内容发布：管理员 + 操作员（已隐藏） -->
-        <!-- <el-menu-item v-if="!userStore.isAuditor" index="/content">
-          <el-icon><FolderOpened /></el-icon>
-          <template #title>内容发布</template>
-        </el-menu-item> -->
+        <!-- 内容发布（已隐藏）-->
 
-        <!-- 终端分组：管理员 + 操作员 -->
+        <!-- 网关管理（M6）：管理员 + 操作员 -->
+        <el-menu-item v-if="!userStore.isAuditor" index="/gateway">
+          <el-icon><Connection /></el-icon>
+          <template #title>网关管理</template>
+        </el-menu-item>
+
+        <!-- 终端设备分组：管理员 + 操作员 -->
         <el-menu-item v-if="!userStore.isAuditor" index="/terminal">
           <el-icon><Monitor /></el-icon>
-          <template #title>终端分组</template>
+          <template #title>终端设备分组</template>
         </el-menu-item>
 
         <!-- 设备心跳：管理员 + 操作员 -->
@@ -101,12 +101,12 @@
         <div class="nav-left">
           <el-breadcrumb separator="/">
             <el-breadcrumb-item :to="{ path: '/dashboard' }">首页</el-breadcrumb-item>
-            <el-breadcrumb-item>{{ route.meta.title }}</el-breadcrumb-item>
+            <el-breadcrumb-item v-if="route.meta.title && route.meta.title !== '首页'">{{ route.meta.title }}</el-breadcrumb-item>
           </el-breadcrumb>
         </div>
 
         <div class="nav-right">
-          <!-- 消息通知图标 — 审计员无此功能，不展示 — 2026-06-11 -->
+
           <div v-if="!userStore.isAuditor" class="notification-bell" @click="router.push('/notification')" title="消息通知">
             <el-badge :value="unreadCount" :hidden="unreadCount === 0" :max="99" class="notif-badge">
               <el-icon :size="20"><Bell /></el-icon>
@@ -121,8 +121,7 @@
             </div>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="profile">个人中心</el-dropdown-item>
-                <el-dropdown-item command="logout" divided style="color: #f56c6c">退出登录</el-dropdown-item>
+                <el-dropdown-item command="logout" style="color: #f56c6c">退出登录</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -144,8 +143,6 @@
       </footer>
     </div>
 
-    <!-- WebSocket 通知弹窗 -->
-    <!-- 通知弹窗 — 审计员无此功能，不展示 — 2026-06-11 -->
     <div v-if="!userStore.isAuditor && popupNotif" class="notif-popup" @click="handlePopupClick">
       <div class="notif-popup-inner">
         <div class="notif-popup-icon">
@@ -331,8 +328,6 @@ const handleCommand = (command) => {
       router.push('/login')
       ElMessage.success('已退出登录')
     }).catch(() => {})
-  } else if (command === 'profile') {
-    ElMessage.info('个人中心开发中')
   }
 }
 </script>
@@ -351,7 +346,7 @@ const handleCommand = (command) => {
   display: flex;
   flex-direction: column;
   transition: width 0.3s ease;
-  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.04);
+  box-shadow: 2px 0 12px rgba(43, 108, 176, 0.06);
   z-index: 100;
   overflow: hidden;
 
@@ -360,63 +355,55 @@ const handleCommand = (command) => {
   }
 
   .brand {
-    height: 60px;
+    height: 64px;
     display: flex;
     align-items: center;
     padding: 0 16px;
-    border-bottom: 1px solid var(--border-light);
+    background: linear-gradient(135deg, #f7fafc, #fff);
+    border-bottom: 1px solid #e2e8f0;
 
-    .brand-icon {
-      width: 36px;
+    .brand-logo {
       height: 36px;
-      border-radius: 8px;
-      background: linear-gradient(135deg, #3a7bd5, #00d2ff);
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      width: auto;
+      border-radius: 4px;
       flex-shrink: 0;
-
-      .brand-short {
-        color: #fff;
-        font-size: 12px;
-        font-weight: bold;
-        letter-spacing: 1px;
-      }
     }
 
     .brand-text {
       font-size: 16px;
       font-weight: 600;
       margin-left: 12px;
-      color: var(--text-primary);
+      color: #1a365d;
       white-space: nowrap;
+      letter-spacing: 1px;
     }
   }
 
   .sidebar-menu {
     flex: 1;
     border-right: none;
-    padding: 8px 12px;
+    padding: 12px 10px;
     --el-menu-base-level-padding: 16px;
 
     .el-menu-item,
     .el-sub-menu__title {
-      height: 44px;
-      line-height: 44px;
-      margin-bottom: 4px;
+      height: 42px;
+      line-height: 42px;
+      margin-bottom: 2px;
       border-radius: 8px;
       color: var(--text-regular);
       font-size: 14px;
+      transition: all 0.2s;
 
       &:hover {
-        background: #f0f5ff;
+        background: var(--color-primary-bg);
         color: var(--color-primary);
       }
 
       &.is-active {
-        background: linear-gradient(135deg, #e8f0ff, #f0f5ff);
+        background: var(--color-primary-bg);
         color: var(--color-primary);
-        font-weight: 500;
+        font-weight: 600;
       }
 
       .el-icon {
@@ -430,7 +417,7 @@ const handleCommand = (command) => {
     display: flex;
     align-items: center;
     justify-content: center;
-    border-top: 1px solid var(--border-light);
+    border-top: 1px solid #edf2f7;
     cursor: pointer;
     color: var(--text-secondary);
     font-size: 18px;
@@ -441,7 +428,6 @@ const handleCommand = (command) => {
     }
   }
 
-  /* 侧边栏菜单消息数字徽标靠上修正 */
   :deep(.menu-badge .el-badge__content) {
     top: 50%;
     transform: translateY(-50%);
@@ -532,7 +518,7 @@ const handleCommand = (command) => {
   flex: 1;
   padding: 20px 24px;
   overflow-y: auto;
-  background: #f0f2f5;
+  background: var(--bg-page);
 }
 
 /* 底部 */
