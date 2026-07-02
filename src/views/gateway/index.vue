@@ -17,10 +17,6 @@
         <el-button @click="handleReset">重置</el-button>
       </div>
       <div class="filter-bar-right">
-        <el-button type="warning" plain @click="handleGatewayConfig">
-          <el-icon style="margin-right: 4px;"><Setting /></el-icon>
-          网关配置
-        </el-button>
         <el-button @click="fetchData">
           <el-icon style="margin-right: 4px;"><Refresh /></el-icon>
           刷新
@@ -62,15 +58,11 @@
             {{ formatTime(row.connectedTime) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right">
+        <el-table-column label="操作" width="80" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" link size="small" @click="goDetail(row.deviceId)">
               详情
             </el-button>
-            <el-button v-if="row.online" type="danger" link size="small" style="margin-left:4px;" @click="handleReboot(row.deviceId)">
-              重启
-            </el-button>
-            <span v-else style="color: #aaa; font-size: 12px;">--</span>
           </template>
         </el-table-column>
       </el-table>
@@ -88,33 +80,16 @@
       <el-empty v-if="!loading && filteredList.length === 0" description="暂无终端连接" />
     </div>
 
-    <!-- 网关配置弹窗 -->
-    <el-dialog v-model="gatewayConfigVisible" title="网关配置" width="420px" :close-on-click-modal="false" @open="fetchGatewayConfig">
-      <el-form label-width="140px">
-        <el-form-item label="同步间隔（毫秒）">
-          <el-input-number v-model="gatewayConfigInterval" :min="5000" :step="1000" :max="300000" style="width: 200px;" />
-          <div style="color: #909399; font-size: 12px; margin-top: 4px;">
-            终端分组列表拉取间隔，最低 5000ms（5秒），默认 30000ms（30秒）
-          </div>
-        </el-form-item>
-        <el-form-item label="当前值">
-          <span>{{ gatewayConfigInterval }}ms = {{ (gatewayConfigInterval / 1000).toFixed(0) }}秒</span>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="gatewayConfigVisible = false">取消</el-button>
-        <el-button type="primary" :loading="gatewayConfigSubmitting" @click="submitGatewayConfig">保存</el-button>
-      </template>
-    </el-dialog>
+
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { getGatewayTerminals, sendGatewayCommand, getGatewayGroupSyncInterval, updateGatewayGroupSyncInterval } from '@/api/gateway'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { Connection, Refresh, Setting } from '@element-plus/icons-vue'
+import { getGatewayTerminals } from '@/api/gateway'
+import { ElMessage } from 'element-plus'
+import { Connection, Refresh } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const loading = ref(false)
@@ -125,9 +100,6 @@ const statusFilter = ref('')
 // 分页
 const pageNum = ref(1)
 const pageSize = ref(10)
-const gatewayConfigVisible = ref(false)
-const gatewayConfigInterval = ref(30000)
-const gatewayConfigSubmitting = ref(false)
 
 function formatTime(ts) {
   if (!ts) return '--'
@@ -188,67 +160,6 @@ function handleReset() {
 
 function goDetail(deviceId) {
   router.push('/gateway/terminal/' + deviceId)
-}
-
-async function handleReboot(deviceId) {
-  try {
-    await ElMessageBox.confirm(
-      `确定对终端 ${deviceId} 执行「系统重启」操作？`,
-      '确认指令',
-      { confirmButtonText: '确定', cancelButtonText: '取消', type: 'error' }
-    )
-    const res = await sendGatewayCommand(deviceId, { command: 'reboot' })
-    if (res.code === 0) {
-      ElMessage.success('重启指令已下发至网关')
-    } else {
-      ElMessage.error(res.message || '指令下发失败')
-    }
-  } catch (e) {
-    if (e !== 'cancel') {
-      console.error('指令下发异常:', e)
-    }
-  }
-}
-
-// ==================== 网关配置 ====================
-
-function handleGatewayConfig() {
-  gatewayConfigVisible.value = true
-}
-
-async function fetchGatewayConfig() {
-  try {
-    const res = await getGatewayGroupSyncInterval()
-    if (res.code === 0 && res.data && res.data.intervalMs) {
-      gatewayConfigInterval.value = res.data.intervalMs
-    }
-  } catch (err) {
-    console.error('获取网关配置失败:', err)
-  }
-}
-
-async function submitGatewayConfig() {
-  gatewayConfigSubmitting.value = true
-  try {
-    const res = await updateGatewayGroupSyncInterval(gatewayConfigInterval.value)
-    if (res.code === 0 && res.data) {
-      if (res.data.status === 'ok') {
-        ElMessage.success(`同步间隔已改为 ${gatewayConfigInterval.value}ms（${(gatewayConfigInterval.value / 1000).toFixed(0)}秒）`)
-        gatewayConfigVisible.value = false
-        // 立即刷新网关数据
-        fetchData()
-      } else {
-        ElMessage.error(res.data.message || '修改失败')
-      }
-    } else {
-      ElMessage.error('修改失败: ' + (res.msg || '未知错误'))
-    }
-  } catch (err) {
-    ElMessage.error('修改网关配置失败: ' + (err.message || '未知错误'))
-    console.error('修改网关配置失败:', err)
-  } finally {
-    gatewayConfigSubmitting.value = false
-  }
 }
 
 onMounted(fetchData)

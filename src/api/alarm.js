@@ -18,7 +18,7 @@ export function getAlarmOverview() {
  * 标记告警为处理中
  */
 export function handleAlarm(id, handler) {
-  return request.put(`/api/alarm/handle/${id}`, null, {
+  return request.post(`/api/alarm/handle/${id}`, null, {
     params: { handler: handler || 'system' }
   })
 }
@@ -27,7 +27,7 @@ export function handleAlarm(id, handler) {
  * 标记告警为已处理
  */
 export function resolveAlarm(id, handler, remark) {
-  return request.put(`/api/alarm/resolve/${id}`, null, {
+  return request.post(`/api/alarm/resolve/${id}`, null, {
     params: { handler: handler || 'system', remark: remark || '' }
   })
 }
@@ -36,7 +36,7 @@ export function resolveAlarm(id, handler, remark) {
  * 一键完成（待处理→已处理）
  */
 export function quickResolveAlarm(id, handler, remark) {
-  return request.put(`/api/alarm/quick-resolve/${id}`, null, {
+  return request.post(`/api/alarm/quick-resolve/${id}`, null, {
     params: { handler: handler || 'system', remark: remark || '' }
   })
 }

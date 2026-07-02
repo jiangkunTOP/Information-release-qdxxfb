@@ -31,19 +31,6 @@
       </el-descriptions>
     </div>
 
-    <!-- 指令下发 -->
-    <div class="page-card" style="margin-top: 16px;">
-      <div class="section-title">指令下发</div>
-      <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-        <el-button type="danger" :loading="cmdLoading" :disabled="!detail.online" @click="sendCmd('reboot')">
-          系统重启
-        </el-button>
-      </div>
-      <div v-if="!detail.online" style="margin-top: 8px; color: #909399; font-size: 12px;">
-        ⚠ 终端离线，不可下发指令
-      </div>
-    </div>
-
     <!-- 返回按钮 -->
     <div style="margin-top: 20px; text-align: right;">
       <el-button @click="$router.back()">返回列表</el-button>
@@ -54,14 +41,11 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { getGatewayTerminalDetail, sendGatewayCommand } from '@/api/gateway'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { getGatewayTerminalDetail } from '@/api/gateway'
 
 const route = useRoute()
 const deviceId = route.params.deviceId || ''
 const detail = ref({})
-const cmdLoading = ref(false)
-
 function formatTime(ts) {
   if (!ts) return '--'
   const d = new Date(ts)
@@ -77,30 +61,6 @@ async function fetchDetail() {
     }
   } catch (e) {
     console.error('获取终端详情失败:', e)
-  }
-}
-
-async function sendCmd(command) {
-  try {
-    await ElMessageBox.confirm(
-      `确定对终端 ${deviceId} 执行「系统重启」？此操作将重启终端系统！`,
-      '确认指令',
-      { confirmButtonText: '确定', cancelButtonText: '取消', type: 'error' }
-    )
-
-    cmdLoading.value = true
-    const res = await sendGatewayCommand(deviceId, { command })
-    if (res.code === 0) {
-      ElMessage.success('指令已下发至网关')
-    } else {
-      ElMessage.error(res.message || '指令下发失败')
-    }
-  } catch (e) {
-    if (e !== 'cancel') {
-      console.error('指令下发异常:', e)
-    }
-  } finally {
-    cmdLoading.value = false
   }
 }
 

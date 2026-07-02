@@ -91,6 +91,9 @@
                   <el-button size="small" type="primary">📁 选择文件</el-button>
                 </el-upload>
               </el-form-item>
+              <el-form-item v-if="uploadProgress > 0 && uploadProgress < 100" label="上传进度">
+                <el-progress :percentage="uploadProgress" :status="uploadProgress === 100 ? 'success' : ''" :stroke-width="8" style="width:100%;" />
+              </el-form-item>
               <el-form-item label="视频URL">
                 <el-input v-model="selectedEl.src" placeholder="或直接输入URL" @input="emitChange" />
               </el-form-item>
@@ -111,6 +114,9 @@
                   <el-button size="small" type="primary">📁 选择文件</el-button>
                 </el-upload>
               </el-form-item>
+              <el-form-item v-if="uploadProgress > 0 && uploadProgress < 100" label="上传进度">
+                <el-progress :percentage="uploadProgress" :status="uploadProgress === 100 ? 'success' : ''" :stroke-width="8" style="width:100%;" />
+              </el-form-item>
               <el-form-item label="图片URL">
                 <el-input v-model="selectedEl.src" placeholder="或直接输入URL" @input="emitChange" />
               </el-form-item>
@@ -128,6 +134,9 @@
                 <el-upload :auto-upload="false" :show-file-list="false" accept="image/*" @change="(f)=>handleFileUpload(f,'carousel')">
                   <el-button size="small" type="primary">📁 添加图片</el-button>
                 </el-upload>
+              </el-form-item>
+              <el-form-item v-if="uploadProgress > 0 && uploadProgress < 100" label="上传进度">
+                <el-progress :percentage="uploadProgress" :status="uploadProgress === 100 ? 'success' : ''" :stroke-width="8" style="width:100%;" />
               </el-form-item>
               <el-form-item label="切换间隔(秒)">
                 <el-input-number v-model="selectedEl.interval" :min="1" :max="60" style="width:100%;" @change="emitChange" />
@@ -214,6 +223,9 @@
           <el-form label-position="top" size="small">
             <el-form-item label="背景色"><el-color-picker v-model="backgroundColor" show-alpha @change="onSettingChange" /></el-form-item>
             <el-form-item label="背景图"><el-upload :auto-upload="false" :show-file-list="false" accept="image/*" @change="(f)=>handleFileUpload(f,'bg')"><el-button size="small" type="primary">选择文件</el-button></el-upload></el-form-item>
+            <el-form-item v-if="uploadProgress > 0 && uploadProgress < 100" label="上传进度">
+              <el-progress :percentage="uploadProgress" :status="uploadProgress === 100 ? 'success' : ''" :stroke-width="8" style="width:100%;" />
+            </el-form-item>
             <el-form-item label="背景图URL"><el-input v-model="backgroundImage" placeholder="或输入URL" @input="onSettingChange" /></el-form-item>
             <div v-if="backgroundImage" class="upload-preview"><img :src="resolveMediaUrl(backgroundImage)" style="width:100%;max-height:80px;object-fit:contain;border-radius:4px;" /></div>
             <div class="setting-row"><label>缩放</label><div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;"><el-button size="small" :type="zoom===100?'primary':''" @click="zoom=100">100%</el-button><el-button size="small" :type="zoom===75?'primary':''" @click="zoom=75">75%</el-button><el-button size="small" :type="zoom===50?'primary':''" @click="zoom=50">50%</el-button><el-button size="small" :type="zoom===25?'primary':''" @click="zoom=25">25%</el-button><el-button size="small" type="success" @click="fitScreen">适应窗口</el-button></div></div>
@@ -228,7 +240,8 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getScreenDetail, saveScreen, updateScreen, uploadFile, getServerTerminalList } from '@/api/screen'
+import { getScreenDetail, saveScreen, updateScreen, uploadFile, getServerTerminalList,
+         initChunkUpload, uploadChunk, completeChunkUpload, getChunkMergeProgress } from '@/api/screen'
 
 const route = useRoute()
 const router = useRouter()
@@ -247,6 +260,15 @@ const zoom = ref(80)
 const elements = ref([])
 const selectedIdx = ref(-1)
 const dirty = ref(false)
+
+// ===== 上传进度 =====
+const uploadProgress = ref(0)           // 当前上传进度百分比（0-100）
+const uploading = ref(false)            // 是否正在上传中
+const chunkEnabledThreshold = 104857600 // 100MB，超过此值走切片上传（与后端配置一致）
+const CHUNK_SIZE = 5242880             // 5MB 每片
+const MAX_RETRIES = 3                   // 单片最大重试次数
+const UPLOAD_FILE_SIZE_LIMIT = 524288000 // 500MB（前端限制）
+const CHUNK_CONCURRENCY = 3            // 切片并发上传数
 const canvasRef = ref(null)
 const scrollRef = ref(null)
 const presetSize = ref([1920, 1080])
@@ -391,32 +413,243 @@ function onMediaError(e) {
 }
 
 // ==== 文件上传 ====
+/**
+ * 上传文件（支持小文件直传和大文件切片上传，含进度条）
+ * 受后端全局并发上限 + IP 令牌桶双重限流保护，429 时提示"服务器上传繁忙，请稍后重试"
+ *
+ * @param {File|object} fileInfo 文件信息（el-upload 的 change 事件参数或 File 对象）
+ * @param {string} targetType 目标类型：video / image / carousel / bg
+ */
 async function handleFileUpload(fileInfo, targetType) {
   const rawFile = fileInfo.raw || fileInfo.file || fileInfo
   if (!rawFile) return
+
+  // ===== 文件大小检查（前端限制 500MB）=----
+  if (rawFile.size > UPLOAD_FILE_SIZE_LIMIT) {
+    ElMessage.error('文件大小不能超过 500MB')
+    return
+  }
+
+  uploading.value = true
+  uploadProgress.value = 0
+
   try {
-    const form = new FormData()
-    form.append('file', rawFile)
-    const res = await uploadFile(form)
-    if (res.code === 0 && res.data?.objectName) {
-      const name = res.data.objectName
+    let objectName
+
+    if (rawFile.size > chunkEnabledThreshold) {
+      // ===== 大文件：切片上传 =====
+      objectName = await uploadByChunks(rawFile, targetType)
+    } else {
+      // ===== 小文件：直传 =====
+      objectName = await uploadDirect(rawFile, targetType)
+    }
+
+    // ===== 更新编辑器中的引用 =====
+    if (objectName) {
       if (targetType === 'video' && selectedEl.value) {
-        selectedEl.value.src = name
-      }
-      else if (targetType === 'image' && selectedEl.value) selectedEl.value.src = name
-      else if (targetType === 'carousel' && selectedEl.value) {
+        selectedEl.value.src = objectName
+      } else if (targetType === 'image' && selectedEl.value) {
+        selectedEl.value.src = objectName
+      } else if (targetType === 'carousel' && selectedEl.value) {
         if (!selectedEl.value.images) selectedEl.value.images = []
-        selectedEl.value.images.push(name)
+        selectedEl.value.images.push(objectName)
+      } else if (targetType === 'bg') {
+        backgroundImage.value = objectName
       }
-      else if (targetType === 'bg') backgroundImage.value = name
       dirty.value = true
       ElMessage.success('上传成功')
-    } else {
-      ElMessage.error('上传失败')
     }
   } catch (e) {
-    ElMessage.error('上传异常')
+    if (e && e.message && e.message.includes('429')) {
+      ElMessage.error('服务器上传繁忙，请稍后重试')
+    } else if (e && e.message) {
+      ElMessage.error('上传失败: ' + e.message)
+    } else {
+      ElMessage.error('上传异常，请重试')
+    }
+  } finally {
+    uploading.value = false
+    // 进度条保持 1 秒再回零，让用户看到 100% 完成
+    if (uploadProgress.value >= 100) {
+      setTimeout(() => { uploadProgress.value = 0 }, 1000)
+    } else {
+      uploadProgress.value = 0
+    }
   }
+}
+
+/**
+ * 小文件直传（带 onUploadProgress 进度回调）
+ */
+function uploadDirect(rawFile) {
+  return new Promise((resolve, reject) => {
+    const form = new FormData()
+    form.append('file', rawFile)
+
+    // 带进度回调的直传
+    uploadFile(form, (progressEvent) => {
+      if (progressEvent.total > 0) {
+        uploadProgress.value = Math.round((progressEvent.loaded / progressEvent.total) * 100)
+      }
+    })
+      .then(res => {
+        if (res.code === 0 && res.data?.objectName) {
+          uploadProgress.value = 100
+          resolve(res.data.objectName)
+        } else {
+          reject(new Error(res.message || '上传失败'))
+        }
+      })
+      .catch(e => {
+        if (e.response && e.response.status === 429) {
+          reject(new Error('429: 服务器上传繁忙，请稍后重试'))
+        } else {
+          reject(e)
+        }
+      })
+  })
+}
+
+/**
+ * 大文件切片上传（含进度条 + 并发窗口 + 失败重试）
+ */
+async function uploadByChunks(rawFile, targetType) {
+  const totalChunks = Math.ceil(rawFile.size / CHUNK_SIZE)
+
+  // ===== Step 1: 初始化 =====
+  const initRes = await initChunkUpload({
+    fileName: rawFile.name,
+    fileSize: rawFile.size,
+  })
+  if (initRes.code !== 0 || !initRes.data) {
+    throw new Error((initRes.message || '初始化失败') + (initRes.code === 1004 ? ' (429)' : ''))
+  }
+
+  const { uploadId, totalChunks: serverTotal, finalObjectName } = initRes.data
+  // 以后端返回的 totalChunks 为准
+  const realTotalChunks = serverTotal || totalChunks
+
+  // ===== Step 2: 并发上传切片（每批3片）=----
+  let successCount = 0
+  let failedMsg = null
+
+  // 进度更新函数
+  const updateProgress = () => {
+    uploadProgress.value = Math.round((successCount / realTotalChunks) * 99)
+  }
+
+  // 上传单片（含重试）
+  async function uploadSingleChunk(index) {
+    let lastError = null
+    for (let retry = 0; retry < MAX_RETRIES; retry++) {
+      try {
+        const start = index * CHUNK_SIZE
+        const end = Math.min(start + CHUNK_SIZE, rawFile.size)
+        const blob = rawFile.slice(start, end)
+
+        const form = new FormData()
+        form.append('uploadId', uploadId)
+        form.append('chunkIndex', index)
+        form.append('totalChunks', realTotalChunks)
+        form.append('file', blob, `chunk_${index}`)
+
+        const res = await uploadChunk(form)
+        if (res.code === 0 && res.data?.received) {
+          successCount++
+          updateProgress()
+          return // 成功
+        }
+        lastError = new Error(res.message || `切片 ${index} 上传失败`)
+      } catch (e) {
+        lastError = e
+        if (e.response && e.response.status === 429) {
+          // 429 直接抛，不重试（是限流，不是网络问题）
+          throw new Error('429: 服务器上传繁忙，请稍后重试')
+        }
+        await new Promise(r => setTimeout(r, 1000 * (retry + 1))) // 等 1s/2s/3s
+      }
+    }
+    throw lastError || new Error(`切片 ${index} 上传失败`)
+  }
+
+  // 并发池执行
+  const queue = []
+  for (let i = 0; i < realTotalChunks; i++) {
+    const task = uploadSingleChunk(i).catch(err => {
+      failedMsg = err
+    })
+    queue.push(task)
+
+    // 控制并发窗口
+    if (queue.length >= CHUNK_CONCURRENCY) {
+      await Promise.race(queue)
+      // 清理已完成的
+      while (queue.length > 0) {
+        const done = await Promise.race(queue.map((p, idx) => p.then(() => idx)))
+        queue.splice(done, 1)
+      }
+    }
+  }
+
+  // 等待剩余任务完成
+  await Promise.all(queue)
+
+  if (failedMsg) {
+    throw failedMsg
+  }
+
+  // ===== Step 3: 完成合片 =====
+  uploadProgress.value = 99
+  const completeRes = await completeChunkUpload({
+    uploadId,
+    totalChunks: realTotalChunks,
+    finalObjectName,
+  })
+
+  if (completeRes.code !== 0 || !completeRes.data) {
+    if (completeRes.code === 1004) {
+      throw new Error('429: 服务器上传繁忙，请稍后重试')
+    }
+    throw new Error(completeRes.message || '合片失败')
+  }
+
+  const { taskId, status } = completeRes.data
+
+  // ===== Step 4: 轮询合片进度 =====
+  if (taskId && status === 'merging') {
+    // 轮询最多 60 秒
+    const POLL_INTERVAL = 2000
+    const MAX_POLL_TIME = 60000
+    const startTime = Date.now()
+
+    while (Date.now() - startTime < MAX_POLL_TIME) {
+      await new Promise(r => setTimeout(r, POLL_INTERVAL))
+
+      try {
+        const progressRes = await getChunkMergeProgress(taskId)
+        if (progressRes.code === 0 && progressRes.data) {
+          const { status: mergeStatus, objectName: objName } = progressRes.data
+          if (mergeStatus === 'completed' && objName) {
+            uploadProgress.value = 100
+            return objName
+          } else if (mergeStatus === 'failed') {
+            throw new Error('合片失败')
+          }
+          // merging 继续轮询
+        }
+      } catch (e) {
+        if (e.response && e.response.status === 429) {
+          throw new Error('429: 服务器上传繁忙，请稍后重试')
+        }
+        // 其他错误继续轮询
+      }
+    }
+    throw new Error('合片超时，请重试')
+  }
+
+  // 如果 taskId 为空（理论上不会），直接返回 finalObjectName
+  uploadProgress.value = 100
+  return finalObjectName
 }
 
 // ==== 组件拖拽 ====

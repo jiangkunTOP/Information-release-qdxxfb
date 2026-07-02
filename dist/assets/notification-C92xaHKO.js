@@ -1,0 +1,1 @@
+import{r as i}from"./request-CKO__Ira.js";function o(t,a){return i.get("/api/notification/list",{params:{pageNum:t,pageSize:a}})}function r(){return i.get("/api/notification/overview")}function e(t){return i.post(`/api/notification/read/${t}`)}function f(){return i.post("/api/notification/read-all")}export{o as a,e as b,r as g,f as m};

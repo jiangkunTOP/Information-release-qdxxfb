@@ -198,6 +198,9 @@ request.interceptors.response.use(
         case 404:
           ElMessage.error('请求的资源不存在')
           break
+        case 429:
+          // 限流由业务逻辑自行处理，不弹默认 toast
+          break
         case 500:
           ElMessage.error('服务器内部错误')
           break

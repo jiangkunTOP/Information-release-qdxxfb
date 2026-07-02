@@ -272,7 +272,7 @@ const defaultForm = {
   deviceType: 'camera',
   manufacturer: 'hikvision',
   ipAddress: '',
-  port: 8000,
+  port: 22,
   equipmentAccount: '',
   equipmentPassword: '',
   group: '',
@@ -329,6 +329,7 @@ const handleReset = () => {
 const onDeviceTypeChange = (val) => {
   if (val === 'server') {
     form.manufacturer = ''
+    form.port = 22
   } else {
     form.manufacturer = 'hikvision'
     form.port = 8000
@@ -338,6 +339,8 @@ const onDeviceTypeChange = (val) => {
 const onManufacturerChange = (val) => {
   if (val === 'dahua') {
     form.port = 37777
+  } else if (val === '') {
+    form.port = 22
   } else {
     form.port = 8000
   }

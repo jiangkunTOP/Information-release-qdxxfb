@@ -20,14 +20,14 @@ export function getNotificationOverview() {
  * 标记已读
  */
 export function markRead(id) {
-  return request.put(`/api/notification/read/${id}`)
+  return request.post(`/api/notification/read/${id}`)
 }
 
 /**
  * 全部已读
  */
 export function markAllRead() {
-  return request.put('/api/notification/read-all')
+  return request.post('/api/notification/read-all')
 }
 
 /**

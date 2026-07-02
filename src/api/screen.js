@@ -74,16 +74,21 @@ export function deleteScreen(data) {
 /**
  * 上传文件
  * @param {FormData} formData 包含file字段的FormData
+ * @param {Function} onProgress 进度回调 (progressEvent) => void（可选）
  */
-export function uploadFile(formData) {
-  return request({
+export function uploadFile(formData, onProgress) {
+  const config = {
     url: '/api/screen/upload',
     method: 'post',
     data: formData,
     headers: {
       'Content-Type': 'multipart/form-data',
     },
-  })
+  }
+  if (onProgress) {
+    config.onUploadProgress = onProgress
+  }
+  return request(config)
 }
 
 /**
@@ -187,5 +192,64 @@ export function getServerTerminalList() {
   return request({
     url: '/api/terminal/server-list',
     method: 'get',
+  })
+}
+
+// ==================== 切片上传相关 API ====================
+
+/**
+ * 切片上传初始化
+ * @param {string} fileName 原始文件名
+ * @param {number} fileSize 文件大小（字节）
+ * @param {Function} onUploadProgress 进度回调（可选）
+ * @returns {Promise<{uploadId, chunkSize, totalChunks, finalObjectName}>}
+ */
+export function initChunkUpload(data) {
+  return request({
+    url: '/api/screen/upload/chunk/init',
+    method: 'post',
+    data,
+  })
+}
+
+/**
+ * 上传单片切片
+ * @param {FormData} formData 包含 uploadId, chunkIndex, totalChunks, file 字段
+ * @returns {Promise}
+ */
+export function uploadChunk(formData) {
+  return request({
+    url: '/api/screen/upload/chunk',
+    method: 'post',
+    data: formData,
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  })
+}
+
+/**
+ * 完成切片上传（合并所有切片）
+ * @param {{ uploadId, totalChunks, finalObjectName }} data
+ * @returns {Promise<{taskId, status}>}
+ */
+export function completeChunkUpload(data) {
+  return request({
+    url: '/api/screen/upload/chunk/complete',
+    method: 'post',
+    data,
+  })
+}
+
+/**
+ * 查询合片任务进度
+ * @param {string} taskId
+ * @returns {Promise}
+ */
+export function getChunkMergeProgress(taskId) {
+  return request({
+    url: '/api/screen/upload/chunk/progress',
+    method: 'get',
+    params: { taskId },
   })
 }

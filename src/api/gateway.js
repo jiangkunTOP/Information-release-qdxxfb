@@ -16,18 +16,3 @@ export function getGatewayTerminalDetail(deviceId) {
 export function getGatewayMetrics() {
   return request.get('/api/gateway/metrics')
 }
-
-// 下发指令到终端
-export function sendGatewayCommand(deviceId, data) {
-  return request.post('/api/gateway/terminals/' + deviceId + '/command', data)
-}
-
-// 获取网关同步间隔
-export function getGatewayGroupSyncInterval() {
-  return request.get('/api/gateway/config/group-sync-interval')
-}
-
-// 修改网关同步间隔
-export function updateGatewayGroupSyncInterval(intervalMs) {
-  return request.put('/api/gateway/config/group-sync-interval', { intervalMs })
-}
