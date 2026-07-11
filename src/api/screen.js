@@ -115,8 +115,11 @@ export function getScreenConfig() {
 }
 
 /**
- * 异步推送到小终端
- * @param {{ screenId: string }} data
+ * 异步推送到小终端（v5 增量推送）
+ * @param {{ screenId: string, publishType?: string, interruptWindowStart?: number, interruptWindowEnd?: number }} data
+ *   - publishType: 'normal' | 'interrupt'（默认 normal）
+ *   - interruptWindowStart: 插播开始时间毫秒时间戳
+ *   - interruptWindowEnd: 插播结束时间毫秒时间戳
  */
 export function asyncPushToTerminal(data) {
   return request({
@@ -130,11 +133,12 @@ export function asyncPushToTerminal(data) {
  * 查询推送任务进度
  * @param {string} taskId
  */
-export function getPushTaskProgress(taskId) {
+
+export function getPublishLogList(screenIds) {
   return request({
-    url: '/api/screen/push-task-progress',
+    url: '/api/screen/publish-log-list',
     method: 'get',
-    params: { taskId },
+    params: { screenIds },
   })
 }
 
@@ -251,5 +255,150 @@ export function getChunkMergeProgress(taskId) {
     url: '/api/screen/upload/chunk/progress',
     method: 'get',
     params: { taskId },
+  })
+}
+
+// ==================== v5 直连终端上传（不走服务器中转）====================
+//
+// 设计原则：所有直连终端 3001 端口的请求，一律使用 fetch 原生 API，
+// 绕过 axios 实例。原因：
+//   1. axios 实例默认 withCredentials: true，跨域直连终端 3001 会被浏览器 CORS 拦截
+//   2. axios 拦截器自动注入 X-Trace-Id / X-Request-Id 等无关 header
+//   3. multipart/form-data 手动设 Content-Type 会丢失 boundary
+//   4. fetch 请求体传 Blob 即为纯二进制 body，终端 _read_body() 直接读盘，协议干净
+//
+// 所有直连请求统一走 terminalFetch 函数。
+
+/**
+ * 请求上传令牌（由后端签发，直连终端时携带）
+ * @param {{ terminalIp: string, screenId: string }} data
+ */
+export function requestUploadToken(data) {
+  return request({
+    url: '/api/terminal/upload-token',
+    method: 'post',
+    data,
+  })
+}
+
+/**
+ * 直连终端 3001 — 统一 fetch 收发（内部函数，不导出）
+ *
+ * @param {string} terminalIp 终端 IP
+ * @param {string} path 路由路径，如 '/upload'、'/upload/init'
+ * @param {BodyInit|null} body 请求体（终端直接读 raw body）
+ * @param {string} uploadToken 上传令牌
+ * @param {object} [extraHeaders] 额外请求头
+ * @param {AbortSignal} [signal] 取消信号
+ * @returns {Promise<object>} 终端返回的 JSON
+ */
+async function terminalFetch(terminalIp, path, body, uploadToken, extraHeaders = {}, signal) {
+  const url = `http://${terminalIp}:3001${path}`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'X-Upload-Token': uploadToken,
+      ...extraHeaders,
+    },
+    body,
+    signal,
+  })
+  if (!res.ok) {
+    if (res.status === 403) throw new Error('上传令牌无效，请刷新页面重试')
+    if (res.status === 429) throw new Error('429: 服务器上传繁忙，请稍后重试')
+    throw new Error(`终端返回 HTTP ${res.status}`)
+  }
+  return res.json()
+}
+
+/**
+ * 直连终端 3001 — 小文件直传
+ *
+ * 直接将 File/Blob 作为 request body 发送（非 multipart）:
+ *   - 终端 _handle_upload_simple 调用 _read_body() 读到纯二进制文件内容
+ *   - 文件名通过 URL query 参数 fileName 传递
+ *
+ * @param {string} terminalIp 终端 IP
+ * @param {File} file 文件对象
+ * @param {string} uploadToken 上传令牌
+ * @returns {Promise<{id, fileName, fileSize, fileHash, mimeType, zone}>}
+ */
+export async function terminalUploadSimple(terminalIp, file, uploadToken) {
+  return terminalFetch(
+    terminalIp,
+    `/upload?fileName=${encodeURIComponent(file.name)}`,
+    file,
+    uploadToken,
+  )
+}
+
+/**
+ * 直连终端 3001 — 初始化切片上传会话
+ *
+ * @param {string} terminalIp 终端 IP
+ * @param {{ fileName: string, fileSize: number }} data
+ * @param {string} uploadToken 上传令牌
+ * @returns {Promise<{uploadId, resumedChunks, chunkSize}>}
+ */
+export async function terminalInitUpload(terminalIp, data, uploadToken) {
+  return terminalFetch(
+    terminalIp,
+    '/upload/init',
+    JSON.stringify(data),
+    uploadToken,
+    { 'Content-Type': 'application/json' },
+  )
+}
+
+/**
+ * 直连终端 3001 — 上传单一切片
+ *
+ * 直接将 Blob 作为 request body 发送：
+ *   - 终端 _handle_upload_chunk 调用 _read_body() 读到纯切片二进制
+ *   - uploadId / chunkIndex 通过 URL query 传递
+ *
+ * @param {string} terminalIp 终端 IP
+ * @param {Blob} chunkBlob 切片二进制
+ * @param {string} uploadId 上传会话 ID
+ * @param {number} chunkIndex 切片序号
+ * @param {string} uploadToken 上传令牌
+ * @returns {Promise<{ok, chunkIndex, received, total}>}
+ */
+export async function terminalUploadChunk(terminalIp, chunkBlob, uploadId, chunkIndex, uploadToken) {
+  return terminalFetch(
+    terminalIp,
+    `/upload/chunk?uploadId=${uploadId}&chunkIndex=${chunkIndex}`,
+    chunkBlob,
+    uploadToken,
+  )
+}
+
+/**
+ * 直连终端 3001 — 完成合片
+ *
+ * @param {string} terminalIp 终端 IP
+ * @param {{ uploadId: string, totalChunks: number }} data
+ * @param {string} uploadToken 上传令牌
+ * @returns {Promise<{id, fileName, fileSize, fileHash, mimeType, zone}>}
+ */
+export async function terminalCompleteUpload(terminalIp, data, uploadToken) {
+  return terminalFetch(
+    terminalIp,
+    '/upload/complete',
+    JSON.stringify(data),
+    uploadToken,
+    { 'Content-Type': 'application/json' },
+  )
+}
+
+/**
+ * 直连终端 3001 - 上传后通知后端记录
+ * @param {{ screenId: string, terminalIp: string, resourceId: string, fileHash: string, fileName: string, fileSize: number }} data
+ */
+export function recordUpload(data) {
+  return request({
+    url: '/api/screen/upload-record',
+    method: 'post',
+    data,
   })
 }

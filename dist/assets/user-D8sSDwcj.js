@@ -1,1 +1,0 @@
-import{r}from"./request-CKO__Ira.js";function s(e){return r.post("/api/user/login",e)}function n(e){return r.post("/api/user/list",e)}function u(e){return r.post("/api/user/add",e)}function a(e){return r.post("/api/user/update",e)}function i(e){return r.post("/api/user/delete",e)}function o(e){return r.post("/api/user/enable",e)}export{u as a,i as d,o as e,n as g,s as l,a as u};

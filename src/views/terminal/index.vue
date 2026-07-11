@@ -18,7 +18,7 @@
         <el-button @click="handleReset">重置</el-button>
       </div>
       <div class="filter-bar-right">
-        <el-button type="primary" @click="handleAdd">新增终端</el-button>
+        <el-button type="primary" @click="handleAdd">新增</el-button>
       </div>
     </div>
 
@@ -34,7 +34,7 @@
         empty-text=""
         max-height="calc(100vh - 280px)"
       >
-        <el-table-column prop="equipmentId" label="设备ID" min-width="120" align="center" />
+        <el-table-column prop="equipmentId" label="设备标识码" min-width="120" align="center" v-if="false" />
         <el-table-column prop="equipmentName" label="设备名称" min-width="120" align="center" show-overflow-tooltip />
         <el-table-column label="设备类型" min-width="90" align="center">
           <template #default="{ row }">
@@ -57,7 +57,22 @@
             {{ formatTime(row.lastTime) }}
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="设备在线状态" min-width="110" align="center" />
+        <el-table-column label="设备在线状态" min-width="110" align="center">
+          <template #default="{ row }">
+            <span v-if="!row.status" style="display:inline-flex;align-items:center;gap:4px;color:#e6a23c;">
+              <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#e6a23c;animation:pulse 1.5s infinite;"></span>
+              检测中
+            </span>
+            <span v-else-if="row.status === '在线'" style="display:inline-flex;align-items:center;gap:4px;color:#67c23a;">
+              <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#67c23a;"></span>
+              在线
+            </span>
+            <span v-else style="display:inline-flex;align-items:center;gap:4px;color:#f56c6c;">
+              <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f56c6c;"></span>
+              离线
+            </span>
+          </template>
+        </el-table-column>
         <el-table-column label="设备登录状态" min-width="110" align="center">
           <template #default="{ row }">
             <!-- 小终端不展示登录状态 -->
@@ -151,7 +166,7 @@
     <!-- 新增/编辑对话框 -->
     <el-dialog
       v-model="dialogVisible"
-      :title="isEdit ? '修改终端' : '新增终端'"
+      :title="isEdit ? '修改终端' : '新增'"
       width="550px"
       :close-on-click-modal="false"
     >
@@ -171,8 +186,8 @@
         <el-form-item label="设备名称" prop="equipmentName">
           <el-input v-model="form.equipmentName" placeholder="请输入设备名称" />
         </el-form-item>
-        <el-form-item label="设备ID" prop="equipmentId" v-if="!isEdit">
-          <el-input v-model="form.equipmentId" placeholder="请输入设备ID" />
+        <el-form-item label="设备标识码" prop="equipmentId" v-if="!isEdit">
+          <el-input v-model="form.equipmentId" placeholder="请输入设备SN码或标识码" />
         </el-form-item>
         <el-form-item label="IP地址" prop="ipAddress">
           <el-input v-model="form.ipAddress" placeholder="请输入IP地址" />
@@ -208,7 +223,7 @@
           <el-tag v-else-if="viewData.manufacturer === 'dahua'" type="success" size="small">大华</el-tag>
           <el-tag v-else type="info" size="small">海康</el-tag>
         </el-descriptions-item>
-        <el-descriptions-item label="设备ID">{{ viewData.equipmentId || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="设备标识码">{{ viewData.equipmentId || '-' }}</el-descriptions-item>
         <el-descriptions-item label="设备名称">{{ viewData.equipmentName || '-' }}</el-descriptions-item>
         <el-descriptions-item label="分组">{{ viewData.group || '-' }}</el-descriptions-item>
         <el-descriptions-item label="IP地址">{{ viewData.ipAddress || '-' }}</el-descriptions-item>
@@ -282,8 +297,10 @@ const form = reactive({ ...defaultForm })
 
 const formRules = {
   equipmentName: [{ required: true, message: '请输入设备名称', trigger: 'blur' }],
-  equipmentId: [{ required: true, message: '请输入设备ID', trigger: 'blur' }],
+  equipmentId: [{ required: true, message: '请输入设备标识码', trigger: 'blur' }],
   ipAddress: [{ required: true, message: '请输入IP地址', trigger: 'blur' }],
+  equipmentAccount: [{ required: true, message: '请输入登录用户名', trigger: 'blur' }],
+  equipmentPassword: [{ required: true, message: '请输入登录密码', trigger: 'blur' }],
 }
 
 const fetchList = async (isManual = false) => {
@@ -515,6 +532,8 @@ const handleSubmit = async () => {
         ElMessage.success(isEdit.value ? '修改成功' : '新增成功')
         dialogVisible.value = false
         fetchList(true)
+        // 新增后 1 秒再刷一次，让网关有足够时间返回在线状态
+        setTimeout(() => fetchList(true), 1000)
       }
     } catch (err) {
       console.error('提交失败:', err)
@@ -574,6 +593,11 @@ onMounted(() => {
 
 :deep(.el-table__empty-text) {
   display: none;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
 }
 
 .page-card {

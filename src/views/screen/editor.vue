@@ -6,7 +6,11 @@
         <el-button size="small" type="warning" @click="resetCanvas">新建</el-button>
         <span class="toolbar-title">{{ isNew ? '新建大屏' : '编辑大屏' }}</span>
         <el-input v-model="publishTitle" placeholder="大屏标题" style="width:200px;margin-left:12px;" @input="dirty=true" />
-        <el-select v-model="targetGroupId" placeholder="选择绑定终端" style="width:200px;margin-left:12px;" clearable @change="dirty=true">
+        <el-select v-model="pushType" style="width:120px;margin-left:8px;" :disabled="isEditMode" @change="dirty=true">
+          <el-option label="普通发布" value="normal" />
+          <el-option label="紧急插播" value="interrupt" />
+        </el-select>
+        <el-select v-model="targetGroupId" multiple collapse-tags placeholder="选择绑定终端(最多20个)" style="width:220px;margin-left:8px;" :disabled="isEditMode" clearable @change="onTargetGroupChange">
           <el-option v-for="t in serverTerminals" :key="t.id" :label="t.equipmentName" :value="t.id" />
         </el-select>
       </div>
@@ -241,12 +245,14 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'v
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getScreenDetail, saveScreen, updateScreen, uploadFile, getServerTerminalList,
-         initChunkUpload, uploadChunk, completeChunkUpload, getChunkMergeProgress } from '@/api/screen'
+         requestUploadToken, terminalUploadSimple, terminalInitUpload,
+         terminalUploadChunk, terminalCompleteUpload, recordUpload } from '@/api/screen'
 
 const route = useRoute()
 const router = useRouter()
 const recordId = computed(() => route.params.id || '')
 const isNew = computed(() => !recordId.value)
+const isEditMode = ref(false)
 
 // ==== 画布 ====
 const pageWidth = ref(1920)
@@ -254,7 +260,8 @@ const pageHeight = ref(1080)
 const backgroundColor = ref('#000000')
 const backgroundImage = ref('')
 const publishTitle = ref('')
-const targetGroupId = ref('')
+const targetGroupId = ref([])        // 多选终端ID数组
+const pushType = ref('normal')
 const serverTerminals = ref([])
 const zoom = ref(80)
 const elements = ref([])
@@ -332,6 +339,7 @@ function onCanvasClick() { selectedIdx.value = -1 }
 
 // ==== 生命周期 ====
 onMounted(() => {
+  isEditMode.value = !!recordId.value
   loadServerTerminals()
   updateClock()
   clockTimer = setInterval(updateClock, 1000)
@@ -405,6 +413,16 @@ function onWindowResize() {
 function resolveMediaUrl(name) {
   if (!name) return ''
   if (name.startsWith('http://') || name.startsWith('https://') || name.startsWith('data:') || name.startsWith('blob:')) return name
+  // v5: 纯 fileHash（16位以上 hex）且已绑定终端 → 直连首个终端 3001 媒体地址
+  if (targetGroupId.value.length > 0 && /^[a-f0-9]{16,}$/.test(name)) {
+    const ids = targetGroupId.value
+    for (const id of ids) {
+      const t = serverTerminals.value.find(x => x.id === id)
+      if (t && t.ipAddress) {
+        return 'http://' + t.ipAddress + ':3001/media/' + name
+      }
+    }
+  }
   return '/api/screen/public-preview?objectName=' + encodeURIComponent(name)
 }
 
@@ -424,7 +442,23 @@ async function handleFileUpload(fileInfo, targetType) {
   const rawFile = fileInfo.raw || fileInfo.file || fileInfo
   if (!rawFile) return
 
-  // ===== 文件大小检查（前端限制 500MB）=----
+  // ===== v5: 必须绑定至少一个终端才能上传 =====
+  const terminalIds = targetGroupId.value
+  if (!terminalIds || terminalIds.length === 0) {
+    ElMessage.warning('请先绑定至少一个终端再上传')
+    return
+  }
+  const terminalList = []
+  for (const id of terminalIds) {
+    const t = serverTerminals.value.find(x => x.id === id)
+    if (t && t.ipAddress) terminalList.push(t)
+  }
+  if (terminalList.length === 0) {
+    ElMessage.warning('绑定的终端信息不完整')
+    return
+  }
+
+  // ===== 文件大小检查 =====
   if (rawFile.size > UPLOAD_FILE_SIZE_LIMIT) {
     ElMessage.error('文件大小不能超过 500MB')
     return
@@ -435,16 +469,22 @@ async function handleFileUpload(fileInfo, targetType) {
 
   try {
     let objectName
+    const totalTerminals = terminalList.length
+    const useChunks = rawFile.size > chunkEnabledThreshold
 
-    if (rawFile.size > chunkEnabledThreshold) {
-      // ===== 大文件：切片上传 =====
-      objectName = await uploadByChunks(rawFile, targetType)
-    } else {
-      // ===== 小文件：直传 =====
-      objectName = await uploadDirect(rawFile, targetType)
+    for (let ti = 0; ti < totalTerminals; ti++) {
+      const term = terminalList[ti]
+      const termIp = term.ipAddress
+      console.log(`[upload] 终端 ${ti+1}/${totalTerminals}: ${termIp}`)
+
+      if (useChunks) {
+        objectName = await uploadByChunks(rawFile, targetType, termIp, ti, totalTerminals)
+      } else {
+        objectName = await uploadDirect(rawFile, targetType, termIp, ti, totalTerminals)
+      }
     }
 
-    // ===== 更新编辑器中的引用 =====
+    // ===== 所有终端上传完成，更新编辑器中的引用 =====
     if (objectName) {
       if (targetType === 'video' && selectedEl.value) {
         selectedEl.value.src = objectName
@@ -457,7 +497,7 @@ async function handleFileUpload(fileInfo, targetType) {
         backgroundImage.value = objectName
       }
       dirty.value = true
-      ElMessage.success('上传成功')
+      ElMessage.success(`上传成功（已同步 ${totalTerminals} 个终端）`)
     }
   } catch (e) {
     if (e && e.message && e.message.includes('429')) {
@@ -469,7 +509,6 @@ async function handleFileUpload(fileInfo, targetType) {
     }
   } finally {
     uploading.value = false
-    // 进度条保持 1 秒再回零，让用户看到 100% 完成
     if (uploadProgress.value >= 100) {
       setTimeout(() => { uploadProgress.value = 0 }, 1000)
     } else {
@@ -481,65 +520,102 @@ async function handleFileUpload(fileInfo, targetType) {
 /**
  * 小文件直传（带 onUploadProgress 进度回调）
  */
-function uploadDirect(rawFile) {
-  return new Promise((resolve, reject) => {
-    const form = new FormData()
-    form.append('file', rawFile)
-
-    // 带进度回调的直传
-    uploadFile(form, (progressEvent) => {
-      if (progressEvent.total > 0) {
-        uploadProgress.value = Math.round((progressEvent.loaded / progressEvent.total) * 100)
+function uploadDirect(rawFile, targetType, terminalIp, ti, totalTerminals) {
+  console.log('[uploadDirect] terminalIp=', terminalIp, 'rawFile=', rawFile?.name)
+  const termProgress = (ti / totalTerminals) * 100
+  return new Promise(async (resolve, reject) => {
+    try {
+      // 1. 获取上传令牌
+      const tokenRes = await requestUploadToken({
+        terminalIp: terminalIp,
+        screenId: recordId.value || 'temp',
+      })
+      if (tokenRes.code !== 0 || !tokenRes.data?.uploadToken) {
+        reject(new Error('获取上传令牌失败'))
+        return
       }
-    })
-      .then(res => {
-        if (res.code === 0 && res.data?.objectName) {
-          uploadProgress.value = 100
-          resolve(res.data.objectName)
-        } else {
-          reject(new Error(res.message || '上传失败'))
+      const uploadToken = tokenRes.data.uploadToken
+
+      // 2. 直连终端上传（纯二进制 body，绕过 axios）
+      const res = await terminalUploadSimple(terminalIp, rawFile, uploadToken)
+      if (res && res.fileHash) {
+        uploadProgress.value = Math.round(termProgress + 99 / totalTerminals)
+        // 3. 通知后端记录上传
+        recordUpload({
+          screenId: recordId.value || 'temp',
+          terminalIp: terminalIp,
+          resourceId: res.id || '',
+          resourceHash: res.fileHash,
+          fileName: res.fileName || rawFile.name,
+          fileSize: res.fileSize || rawFile.size,
+        }).catch(() => {})
+        // v5: 存纯 fileHash，渲染时由 resolveMediaUrl 自动拼完整 URL
+        if (targetType === 'bg') {
+          backgroundImage.value = res.fileHash
         }
-      })
-      .catch(e => {
-        if (e.response && e.response.status === 429) {
-          reject(new Error('429: 服务器上传繁忙，请稍后重试'))
-        } else {
-          reject(e)
-        }
-      })
+        resolve(res.fileHash)
+      } else {
+        reject(new Error((res && res.error) || '上传失败'))
+      }
+    } catch (e) {
+      if (e.message && e.message.includes('令牌无效')) {
+        reject(new Error('上传令牌无效，请刷新页面重试'))
+      } else {
+        reject(e)
+      }
+    }
   })
 }
 
 /**
  * 大文件切片上传（含进度条 + 并发窗口 + 失败重试）
  */
-async function uploadByChunks(rawFile, targetType) {
+async function uploadByChunks(rawFile, targetType, terminalIp, ti, totalTerminals) {
+  console.log('[uploadByChunks] terminalIp=', terminalIp, 'rawFile=', rawFile?.name)
+  const termProgress = (ti / totalTerminals) * 100
   const totalChunks = Math.ceil(rawFile.size / CHUNK_SIZE)
 
-  // ===== Step 1: 初始化 =====
-  const initRes = await initChunkUpload({
+  // ===== v5: 直连终端，先获取上传令牌 =====
+  const tokenRes = await requestUploadToken({
+    terminalIp: terminalIp,
+    screenId: recordId.value || 'temp',
+  })
+  if (tokenRes.code !== 0 || !tokenRes.data?.uploadToken) {
+    throw new Error('获取上传令牌失败')
+  }
+  const uploadToken = tokenRes.data.uploadToken
+
+  // ===== Step 1: 直连终端初始化（断点续传）=====
+  const totalUploadChunks = Math.ceil(rawFile.size / CHUNK_SIZE)
+  const initRes = await terminalInitUpload(terminalIp, {
     fileName: rawFile.name,
     fileSize: rawFile.size,
-  })
-  if (initRes.code !== 0 || !initRes.data) {
-    throw new Error((initRes.message || '初始化失败') + (initRes.code === 1004 ? ' (429)' : ''))
+    totalChunks: totalUploadChunks,
+  }, uploadToken)
+  if (!initRes.uploadId) {
+    throw new Error((initRes.error || '初始化失败'))
   }
 
-  const { uploadId, totalChunks: serverTotal, finalObjectName } = initRes.data
-  // 以后端返回的 totalChunks 为准
-  const realTotalChunks = serverTotal || totalChunks
+  const { uploadId, resumedChunks } = initRes
 
   // ===== Step 2: 并发上传切片（每批3片）=----
   let successCount = 0
   let failedMsg = null
 
-  // 进度更新函数
+  // 进度更新函数（多终端：当前终端占 1/totalTerminals 权重）
   const updateProgress = () => {
-    uploadProgress.value = Math.round((successCount / realTotalChunks) * 99)
+    const termWeight = 99 / totalTerminals
+    uploadProgress.value = Math.round(termProgress + (successCount / totalUploadChunks) * termWeight)
   }
 
-  // 上传单片（含重试）
+  // 上传单片（含重试 + 断点续传）
   async function uploadSingleChunk(index) {
+    // 断点续传：如果终端已有此切片，直接跳过
+    if (resumedChunks && resumedChunks.includes(index)) {
+      successCount++
+      updateProgress()
+      return
+    }
     let lastError = null
     for (let retry = 0; retry < MAX_RETRIES; retry++) {
       try {
@@ -547,22 +623,16 @@ async function uploadByChunks(rawFile, targetType) {
         const end = Math.min(start + CHUNK_SIZE, rawFile.size)
         const blob = rawFile.slice(start, end)
 
-        const form = new FormData()
-        form.append('uploadId', uploadId)
-        form.append('chunkIndex', index)
-        form.append('totalChunks', realTotalChunks)
-        form.append('file', blob, `chunk_${index}`)
-
-        const res = await uploadChunk(form)
-        if (res.code === 0 && res.data?.received) {
+        const res = await terminalUploadChunk(terminalIp, blob, uploadId, index, uploadToken)
+        if (res.ok && res.received) {
           successCount++
           updateProgress()
           return // 成功
         }
-        lastError = new Error(res.message || `切片 ${index} 上传失败`)
+        lastError = new Error(res.error || `切片 ${index} 上传失败`)
       } catch (e) {
         lastError = e
-        if (e.response && e.response.status === 429) {
+        if (e.message && e.message.includes('429')) {
           // 429 直接抛，不重试（是限流，不是网络问题）
           throw new Error('429: 服务器上传繁忙，请稍后重试')
         }
@@ -574,7 +644,7 @@ async function uploadByChunks(rawFile, targetType) {
 
   // 并发池执行
   const queue = []
-  for (let i = 0; i < realTotalChunks; i++) {
+  for (let i = 0; i < totalUploadChunks; i++) {
     const task = uploadSingleChunk(i).catch(err => {
       failedMsg = err
     })
@@ -600,56 +670,30 @@ async function uploadByChunks(rawFile, targetType) {
 
   // ===== Step 3: 完成合片 =====
   uploadProgress.value = 99
-  const completeRes = await completeChunkUpload({
+  const completeRes = await terminalCompleteUpload(terminalIp, {
     uploadId,
-    totalChunks: realTotalChunks,
-    finalObjectName,
-  })
+    totalChunks: totalUploadChunks,
+  }, uploadToken)
 
-  if (completeRes.code !== 0 || !completeRes.data) {
-    if (completeRes.code === 1004) {
-      throw new Error('429: 服务器上传繁忙，请稍后重试')
-    }
-    throw new Error(completeRes.message || '合片失败')
+  if (!completeRes.id || !completeRes.fileHash) {
+    throw new Error(completeRes.error || '合片失败')
   }
 
-  const { taskId, status } = completeRes.data
-
-  // ===== Step 4: 轮询合片进度 =====
-  if (taskId && status === 'merging') {
-    // 轮询最多 60 秒
-    const POLL_INTERVAL = 2000
-    const MAX_POLL_TIME = 60000
-    const startTime = Date.now()
-
-    while (Date.now() - startTime < MAX_POLL_TIME) {
-      await new Promise(r => setTimeout(r, POLL_INTERVAL))
-
-      try {
-        const progressRes = await getChunkMergeProgress(taskId)
-        if (progressRes.code === 0 && progressRes.data) {
-          const { status: mergeStatus, objectName: objName } = progressRes.data
-          if (mergeStatus === 'completed' && objName) {
-            uploadProgress.value = 100
-            return objName
-          } else if (mergeStatus === 'failed') {
-            throw new Error('合片失败')
-          }
-          // merging 继续轮询
-        }
-      } catch (e) {
-        if (e.response && e.response.status === 429) {
-          throw new Error('429: 服务器上传繁忙，请稍后重试')
-        }
-        // 其他错误继续轮询
-      }
-    }
-    throw new Error('合片超时，请重试')
-  }
-
-  // 如果 taskId 为空（理论上不会），直接返回 finalObjectName
+  // v5: 存纯 fileHash，渲染时由 resolveMediaUrl 自动拼完整 URL
   uploadProgress.value = 100
-  return finalObjectName
+  if (targetType === 'bg') {
+    backgroundImage.value = completeRes.fileHash
+  }
+  // 通知后端记录上传
+  recordUpload({
+    screenId: recordId.value || 'temp',
+    terminalIp: terminalIp,
+    resourceId: completeRes.id || '',
+    resourceHash: completeRes.fileHash,
+    fileName: completeRes.fileName || rawFile.name,
+    fileSize: completeRes.fileSize || rawFile.size,
+  }).catch(() => {})
+  return completeRes.fileHash
 }
 
 // ==== 组件拖拽 ====
@@ -878,14 +922,25 @@ async function loadRecord(id) {
         // 后端 V3 接口包了一层 ScreenDisplayVO（data.data），需要解包
         const d = res.data?.data || res.data
         publishTitle.value = d.title || ''
-        targetGroupId.value = d.targetGroupId || ''
+        targetGroupId.value = d.targetGroupId ? d.targetGroupId.split(',').filter(Boolean) : []
+        pushType.value = d.publishType || 'normal'
         pageWidth.value = d.pageWidth || 1920
         pageHeight.value = d.pageHeight || 1080
         backgroundColor.value = d.backgroundColor || '#000000'
         backgroundImage.value = d.backgroundImage || ''
         if (d.layoutJson) {
           try {
-            elements.value = JSON.parse(d.layoutJson) || []
+            const parsed = JSON.parse(d.layoutJson)
+            if (Array.isArray(parsed)) {
+              elements.value = parsed
+            } else if (parsed && parsed.elements) {
+              elements.value = parsed.elements
+              // 从 layoutJson 中提取背景色和背景图（若无单独字段）
+              if (parsed.backgroundColor && !d.backgroundColor) backgroundColor.value = parsed.backgroundColor
+              if (parsed.backgroundImage && !d.backgroundImage) backgroundImage.value = parsed.backgroundImage
+            } else {
+              elements.value = []
+            }
           } catch (e) { elements.value = [] }
         } else {
           elements.value = []
@@ -909,7 +964,14 @@ async function loadRecord(id) {
 
 async function handleSave() {
   if (!publishTitle.value) { ElMessage.warning('请输入大屏标题'); return }
-  const layoutJson = JSON.stringify(elements.value)
+  const layoutJson = JSON.stringify({
+    elements: elements.value,
+    title: publishTitle.value,
+    backgroundColor: backgroundColor.value,
+    backgroundImage: backgroundImage.value,
+    pageWidth: pageWidth.value,
+    pageHeight: pageHeight.value
+  })
   const payload = {
     title: publishTitle.value,
     pageWidth: pageWidth.value,
@@ -917,7 +979,8 @@ async function handleSave() {
     backgroundColor: backgroundColor.value,
     backgroundImage: backgroundImage.value,
     layoutJson,
-    targetGroupId: targetGroupId.value || null,
+    targetGroupId: targetGroupId.value.length > 0 ? targetGroupId.value.join(',') : null,
+    publishType: pushType.value,
   }
   try {
     let res
@@ -942,6 +1005,14 @@ async function handleSave() {
   }
 }
 
+function onTargetGroupChange() {
+  if (targetGroupId.value.length > 20) {
+    ElMessage.warning('最多只能选择20个终端')
+    targetGroupId.value = targetGroupId.value.slice(0, 20)
+  }
+  dirty.value = true
+}
+
 async function loadServerTerminals() {
   try {
     const res = await getServerTerminalList()
@@ -956,7 +1027,19 @@ async function loadServerTerminals() {
 function handlePreview() {
   if (!recordId.value) { ElMessage.warning('请先保存再预览'); handleSave(); return }
   if (dirty.value) { ElMessage.warning('请先保存再预览'); handleSave(); return }
-  const url = router.resolve('/screen/preview/' + recordId.value).href
+  // v5: 必须绑定终端才能预览（直连终端 3001）
+  const terminalIds = targetGroupId.value
+  if (!terminalIds || terminalIds.length === 0) {
+    ElMessage.warning('请先绑定终端再预览')
+    return
+  }
+  const firstTerm = serverTerminals.value.find(t => t.id === terminalIds[0])
+  if (!firstTerm || !firstTerm.ipAddress) {
+    ElMessage.warning('绑定的终端信息不完整')
+    return
+  }
+  // 在新窗口打开终端 3001 预览页
+  const url = `http://${firstTerm.ipAddress}:3001/preview/${recordId.value}`
   window.open(url, '_blank')
 }
 

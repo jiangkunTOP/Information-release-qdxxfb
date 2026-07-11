@@ -41,6 +41,7 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { getScreenDetail } from '@/api/screen'
+import { getTerminalList } from '@/api/terminal'
 
 const route = useRoute()
 const loading = ref(true)
@@ -49,6 +50,10 @@ const pageWidth = ref(1920)
 const pageHeight = ref(1080)
 const backgroundColor = ref('#000000')
 const backgroundImage = ref('')
+
+// 当前大屏绑定的终端列表，用于资源回退
+const terminalIps = ref([])
+const previewScreenId = ref('')
 const currentTimeStr = ref('')
 const currentDateStr = ref('')
 
@@ -81,6 +86,13 @@ function elementStyle(el) {
 function resolveMediaUrl(name) {
   if (!name) return ''
   if (name.startsWith('http://') || name.startsWith('https://') || name.startsWith('data:') || name.startsWith('blob:')) return name
+  // 优先从终端获取（架构已改为终端直传）
+  // 随机选一个可用终端代理获取资源
+  if (terminalIps.value.length > 0) {
+    const ip = terminalIps.value[0]
+    return '/api/screen/proxy-media?objectName=' + encodeURIComponent(name) + '&terminalIp=' + ip
+  }
+  // fallback：走旧 public-preview 接口（兼容 MinIO）
   return '/api/screen/public-preview?objectName=' + encodeURIComponent(name)
 }
 
@@ -96,6 +108,18 @@ function startCarouselForElement(el) {
     if (!arr.length) return
     carouselState[el.id] = (carouselState[el.id] + 1) % arr.length
   }, interval)
+}
+
+// 获取终端IP列表（用于代理资源请求）
+async function fetchTerminalIps(ids) {
+  try {
+    const res = await getTerminalList({ pageNum: 1, pageSize: 100 })
+    if (res.code === 0 && res.data?.records) {
+      terminalIps.value = res.data.records
+        .filter(t => ids.includes(t.id) && t.ipAddress)
+        .map(t => t.ipAddress)
+    }
+  } catch (e) { /* ignore */ }
 }
 
 function scrollDuration(el) { const m = { slow:'40s', medium:'20s', fast:'10s' }; return m[el.speed] || '20s' }
@@ -132,6 +156,14 @@ onMounted(async () => {
         pageHeight.value = d.pageHeight || 1080
         backgroundColor.value = d.backgroundColor || '#000000'
         backgroundImage.value = d.backgroundImage || ''
+        // 解析绑定的终端列表
+        previewScreenId.value = d.id || id
+        if (d.targetGroupId) {
+          const ids = d.targetGroupId.split(',').filter(Boolean)
+          if (ids.length > 0) {
+            fetchTerminalIps(ids)
+          }
+        }
         if (d.layoutJson) {
           try { elements.value = JSON.parse(d.layoutJson) || [] } catch (e) { elements.value = [] }
           elements.value.forEach(el => { startCarouselForElement(el) })
