@@ -52,6 +52,14 @@
         <el-table-column prop="ipAddress" label="设备IP" min-width="130" align="center" />
         <el-table-column prop="port" label="端口" min-width="80" align="center" />
         <el-table-column prop="group" label="分组" min-width="120" align="center" />
+          <el-table-column label="屏幕分辨率" min-width="130" align="center">
+            <template #default="{ row }">
+              <template v-if="row.deviceType === 'server' && row.screenWidth && row.screenHeight">
+                {{ row.screenWidth }} × {{ row.screenHeight }}
+              </template>
+              <span v-else style="color:#c0c4cc;">—</span>
+            </template>
+          </el-table-column>
         <el-table-column label="最后同步" min-width="160" align="center">
           <template #default="{ row }">
             {{ formatTime(row.lastTime) }}
@@ -145,6 +153,7 @@
             </template>
             <el-button link type="default" size="small" @click="handleView(row)">查看</el-button>
             <el-button link type="primary" size="small" @click="handleEdit(row)">修改</el-button>
+            <el-button link type="warning" size="small" v-if="row.deviceType === 'server'" @click="handleScreenControl(row)">设备控制</el-button>
             <el-button link type="danger" size="small" @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -201,6 +210,14 @@
         <el-form-item label="登录密码" prop="equipmentPassword">
           <el-input v-model="form.equipmentPassword" type="password" placeholder="设备登录密码" show-password autocomplete="new-password" />
         </el-form-item>
+        <el-form-item label="屏幕分辨率" prop="screenWidth" v-if="form.deviceType === 'server'" required>
+          <div style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap;white-space:nowrap;">
+            <el-input-number v-model="form.screenWidth" :min="1" :max="7680" :step="1" placeholder="宽" style="width:130px;" controls-position="right" />
+            <span style="line-height:32px;">×</span>
+            <el-input-number v-model="form.screenHeight" :min="1" :max="4320" :step="1" placeholder="高" style="width:130px;" controls-position="right" />
+            <span style="font-size:12px;color:#909399;line-height:32px;margin-left:4px;">px</span>
+          </div>
+        </el-form-item>
         <el-form-item label="分组" prop="group">
           <el-input v-model="form.group" placeholder="分组名称" />
         </el-form-item>
@@ -238,19 +255,29 @@
           {{ viewData.deviceType === 'server' ? '-' : (viewData.alarmStatus === 'ARMED' ? '布防中' : viewData.alarmStatus === 'DISARMED' ? '已撤防' : '未布防') }}
         </el-descriptions-item>
         <el-descriptions-item label="最近在线时间">{{ formatTime(viewData.lastTime) }}</el-descriptions-item>
+        <el-descriptions-item label="屏幕分辨率">
+          <template v-if="viewData.deviceType === 'server' && viewData.screenWidth && viewData.screenHeight">
+            {{ viewData.screenWidth }} × {{ viewData.screenHeight }}
+          </template>
+          <span v-else style="color:#c0c4cc;">—</span>
+        </el-descriptions-item>
       </el-descriptions>
       <template #footer>
         <el-button @click="viewVisible = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <!-- 设备控制弹窗 -->
+    <ScreenControlDialog ref="screenControlRef" :terminal-id="currentControlTerminalId" :terminal-name="currentControlTerminalName" @close="fetchList(false)" />
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getTerminalList, getTerminalDetail, addTerminal, updateTerminal, deleteTerminal, loginDevice, logoutDevice, armDevice, disarmDevice } from '@/api/terminal'
 import { Monitor } from '@element-plus/icons-vue'
+import ScreenControlDialog from './ScreenControlDialog.vue'
 
 const loading = ref(false)
 const submitting = ref(false)
@@ -291,17 +318,27 @@ const defaultForm = {
   equipmentAccount: '',
   equipmentPassword: '',
   group: '',
+  screenWidth: null,
+  screenHeight: null,
 }
 
 const form = reactive({ ...defaultForm })
 
-const formRules = {
-  equipmentName: [{ required: true, message: '请输入设备名称', trigger: 'blur' }],
-  equipmentId: [{ required: true, message: '请输入设备标识码', trigger: 'blur' }],
-  ipAddress: [{ required: true, message: '请输入IP地址', trigger: 'blur' }],
-  equipmentAccount: [{ required: true, message: '请输入登录用户名', trigger: 'blur' }],
-  equipmentPassword: [{ required: true, message: '请输入登录密码', trigger: 'blur' }],
-}
+const formRules = computed(() => {
+  const rules = {
+    equipmentName: [{ required: true, message: '请输入设备名称', trigger: 'blur' }],
+    equipmentId: [{ required: true, message: '请输入设备标识码', trigger: 'blur' }],
+    ipAddress: [{ required: true, message: '请输入IP地址', trigger: 'blur' }],
+    equipmentAccount: [{ required: true, message: '请输入登录用户名', trigger: 'blur' }],
+    equipmentPassword: [{ required: true, message: '请输入登录密码', trigger: 'blur' }],
+  }
+  // 小终端时分辨率必填
+  if (form.deviceType === 'server') {
+    rules.screenWidth = [{ required: true, type: 'number', message: '请输入屏幕分辨率（宽）', trigger: 'blur' }]
+    rules.screenHeight = [{ required: true, type: 'number', message: '请输入屏幕分辨率（高）', trigger: 'blur' }]
+  }
+  return rules
+})
 
 const fetchList = async (isManual = false) => {
   if (isManual) loading.value = true
@@ -401,6 +438,8 @@ const handleEdit = async (row) => {
         equipmentAccount: d.equipmentAccount,
         equipmentPassword: d.equipmentPassword,
         group: d.group,
+        screenWidth: d.screenWidth ?? null,
+        screenHeight: d.screenHeight ?? null,
       })
     } else {
       Object.assign(form, {
@@ -414,6 +453,8 @@ const handleEdit = async (row) => {
         equipmentAccount: row.equipmentAccount || '',
         equipmentPassword: row.equipmentPassword || '',
         group: row.group || '',
+        screenWidth: row.screenWidth ?? null,
+        screenHeight: row.screenHeight ?? null,
       })
     }
     dialogVisible.value = true
@@ -438,6 +479,20 @@ const handleDelete = (row) => {
       console.error('删除失败:', err)
     }
   }).catch(() => {})
+}
+
+// 设备控制弹窗
+const screenControlRef = ref(null)
+const currentControlTerminalId = ref('')
+const currentControlTerminalName = ref('')
+const handleScreenControl = (row) => {
+  currentControlTerminalId.value = row.ipAddress
+  currentControlTerminalName.value = row.equipmentName
+  nextTick(() => {
+    if (screenControlRef.value) {
+      screenControlRef.value.show()
+    }
+  })
 }
 
 const handleLogin = async (row) => {
@@ -520,6 +575,8 @@ const handleSubmit = async () => {
         equipmentAccount: form.equipmentAccount,
         equipmentPassword: form.equipmentPassword,
         group: form.group,
+        screenWidth: form.screenWidth,
+        screenHeight: form.screenHeight,
       }
       if (isEdit.value) {
         payload.id = form.id

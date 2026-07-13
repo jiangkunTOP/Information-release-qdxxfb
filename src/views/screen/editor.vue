@@ -11,7 +11,7 @@
           <el-option label="紧急插播" value="interrupt" />
         </el-select>
         <el-select v-model="targetGroupId" multiple collapse-tags placeholder="选择绑定终端(最多20个)" style="width:220px;margin-left:8px;" :disabled="isEditMode" clearable @change="onTargetGroupChange">
-          <el-option v-for="t in serverTerminals" :key="t.id" :label="t.equipmentName" :value="t.id" />
+          <el-option v-for="t in serverTerminals" :key="t.id" :label="`${t.equipmentName} (${t.screenWidth || '?'}x${t.screenHeight || '?'})`" :value="t.id" />
         </el-select>
       </div>
       <div class="toolbar-right">
@@ -30,11 +30,51 @@
         </div>
         <el-divider style="margin:8px 0;" />
         <div class="sidebar-title">画布设置</div>
-        <div class="canvas-settings">
-          <div class="setting-row"><label>宽度</label><el-input-number v-model="pageWidth" :min="800" :max="7680" :step="100" size="small" style="width:100px;" @change="onSettingChange" /></div>
-          <div class="setting-row"><label>高度</label><el-input-number v-model="pageHeight" :min="600" :max="4320" :step="100" size="small" style="width:100px;" @change="onSettingChange" /></div>
-          <div class="setting-row"><label>预设</label><el-select v-model="presetSize" size="small" style="width:130px;" @change="onPresetChange"><el-option label="1920×1080" :value="[1920,1080]" /><el-option label="3840×2160" :value="[3840,2160]" /><el-option label="1366×768" :value="[1366,768]" /><el-option label="自定义" :value="[0,0]" /></el-select></div>
+        <div class="canvas-settings" v-if="targetGroupId.length > 0">
+          <div class="setting-row"><label>宽度</label><el-input-number v-model="pageWidth" :min="800" :max="7680" :step="100" size="small" style="width:100px;" disabled /></div>
+          <div class="setting-row"><label>高度</label><el-input-number v-model="pageHeight" :min="600" :max="4320" :step="100" size="small" style="width:100px;" disabled /></div>
         </div>
+        <!-- 素材库：仅绑定单个终端时展示 -->
+        <template v-if="targetGroupId.length === 1">
+          <el-divider style="margin:8px 0;" />
+          <div class="sidebar-title">素材库</div>
+          <div class="material-lib">
+            <div style="font-size:12px;color:#888;text-align:center;padding:20px 0;">在轮播组件中选择「素材库」使用</div>
+          </div>
+        </template>
+
+        <!-- 轮播素材选择弹窗 -->
+        <el-dialog v-model="showMaterialPicker" title="从素材库选择" width="550px" :close-on-click-modal="true" @open="onMaterialPickerOpen">
+          <el-radio-group v-model="materialTab" size="small" style="margin-bottom:8px;">
+            <el-radio-button value="image">图片</el-radio-button>
+            <el-radio-button v-if="materialPickerType==='video'||materialPickerType==='doc'" value="video">视频</el-radio-button>
+          </el-radio-group>
+          <div style="max-height:200px;overflow-y:auto;margin-bottom:8px;">
+            <div v-for="(item, idx) in materialTab==='image' ? materialImages : materialVideos" :key="idx" class="material-item" style="cursor:pointer;" :class="{ 'material-item-active': previewMaterial === item }" @click="previewMaterial = item" @dblclick="onMaterialPickerConfirm(item)">
+              <img v-if="materialTab==='image'" :src="resolveMediaUrl(item.url)" class="material-thumb" />
+              <video v-else-if="materialTab==='video'" :src="resolveMediaUrl(item.url)" class="material-thumb" muted />
+              <span class="material-name">{{ item.file_name || item.name || '未命名' }}</span>
+            </div>
+            <div v-if="materialTab==='image' && materialImages.length===0" class="material-empty">暂无图片素材</div>
+            <div v-if="materialTab==='video' && materialVideos.length===0" class="material-empty">暂无视频素材</div>
+          </div>
+          <div v-if="previewMaterial" class="material-picker-preview" style="height:200px;">
+            <template v-if="materialTab==='image'">
+              <img :src="resolveMediaUrl(previewMaterial.url || previewMaterial.file_hash || previewMaterial.id)" />
+            </template>
+            <template v-else-if="materialTab==='video'">
+              <video :src="resolveMediaUrl(previewMaterial.url || previewMaterial.file_hash || previewMaterial.id)" controls autoplay muted />
+            </template>
+          </div>
+          <div v-else class="material-picker-preview" style="height:200px;display:flex;align-items:center;justify-content:center;">
+            <span style="color:#555;font-size:13px;">点击素材预览</span>
+          </div>
+          <div style="margin-top:8px;font-size:11px;color:#888;">单击预览 · 双击选择</div>
+          <template #footer>
+            <el-button @click="showMaterialPicker = false">关闭</el-button>
+            <el-button type="primary" :disabled="!previewMaterial" @click="onMaterialPickerConfirm(previewMaterial)">选择</el-button>
+          </template>
+        </el-dialog>
       </div>
       <div class="canvas-scroll" ref="scrollRef">
         <div class="canvas-stage" ref="canvasRef" :style="stageStyle" @drop="onDrop" @dragover.prevent @mousedown="onCanvasClick">
@@ -45,12 +85,16 @@
             <div v-if="selectedIdx === idx" class="resize-handle tr" @mousedown.stop="startResize(idx, 'tr', $event)"></div>
             <div v-if="selectedIdx === idx" class="resize-handle bl" @mousedown.stop="startResize(idx, 'bl', $event)"></div>
             <div v-if="selectedIdx === idx" class="resize-handle br" @mousedown.stop="startResize(idx, 'br', $event)"></div>
-            <video v-if="el.type==='video'" :key="'v_'+el.src" :src="resolveMediaUrl(el.src)" :autoplay="el.autoplay!==false" :muted="el.muted!==false" :loop="el.loop!==false" style="width:100%;height:100%;object-fit:contain;display:block;pointer-events:none;" @error="onMediaError"></video>
+            <video v-if="el.type==='video'" :key="'v_'+el.src" :src="resolveMediaUrl(el.src)" :autoplay="el.autoplay!==false" :muted="el.muted!==false" :loop="el.loop!==false" :style="{ width:'100%', height:'100%', objectFit: el.fullscreen ? 'fill' : 'contain', display:'block', pointerEvents:'none' }" @error="onMediaError"></video>
             <div v-if="el.type==='video' && !el.src" class="placeholder-text">🎬 视频组件<br><span style="font-size:11px;opacity:0.6;">上传视频后自动播放</span></div>
-            <img v-else-if="el.type==='image'" :key="'i_'+el.src" :src="resolveMediaUrl(el.src)" style="width:100%;height:100%;object-fit:contain;display:block;pointer-events:none;" :style="{ opacity: el.opacity ?? 1 }" @error="onMediaError" />
+            <img v-else-if="el.type==='image'" :key="'i_'+el.src" :src="resolveMediaUrl(el.src)" :style="{ width:'100%', height:'100%', objectFit: el.fullscreen ? 'fill' : 'contain', display:'block', pointerEvents:'none', opacity: el.opacity ?? 1 }" @error="onMediaError" />
             <div v-else-if="el.type==='carousel'" class="carousel-wrap">
-              <img v-for="(img, ci) in (el.images||[])" :key="ci" :src="resolveMediaUrl(img)" style="width:100%;height:100%;object-fit:contain;position:absolute;left:0;top:0;" :style="{ opacity: carouselIdx(el.id)===ci ? 1 : 0, transition: 'opacity .6s' }" />
-              <div v-if="!el.images || !el.images.length" class="placeholder-text">📷 轮播图<br><span style="font-size:11px;opacity:0.6;">点击上传图片</span></div>
+              <template v-for="(item, ci) in (el.images||[])" :key="ci">
+                <img v-if="typeof item === 'string' || item.type==='image'" :src="resolveMediaUrl(typeof item === 'string' ? item : item.src)" :style="{ width:'100%', height:'100%', objectFit: el.fullscreen ? 'fill' : 'contain', position:'absolute', left:'0', top:'0', opacity: carouselIdx(el.id)===ci ? 1 : 0, transition: 'opacity .6s' }" />
+                <img v-else-if="item.type==='docImage'" :src="resolveMediaUrl(item.src)" :style="{ width:'100%', height:'100%', objectFit: el.fullscreen ? 'fill' : 'contain', position:'absolute', left:'0', top:'0', opacity: carouselIdx(el.id)===ci ? 1 : 0, transition: 'opacity .6s' }" />
+                <video v-else-if="item.type==='video'" :src="resolveMediaUrl(item.src)" autoplay muted loop :style="{ width:'100%', height:'100%', objectFit: el.fullscreen ? 'fill' : 'contain', position:'absolute', left:'0', top:'0', opacity: carouselIdx(el.id)===ci ? 1 : 0, transition: 'opacity .6s' }" @ended="onCarouselVideoEnded(el, item)"></video>
+              </template>
+              <div v-if="!el.images || !el.images.length" class="placeholder-text">📷 轮播图<br><span style="font-size:11px;opacity:0.6;">点击上传素材</span></div>
             </div>
             <div v-else-if="el.type==='text'" class="el-text" :style="{ fontSize: el.fontSize+'px', color: el.color, fontWeight: el.bold?'bold':'normal', textAlign: el.textAlign||'center', fontFamily: el.fontFamily||'inherit' }">{{ el.content || '文字内容' }}</div>
             <div v-else-if="el.type==='scrollText'" class="el-scroll-text">
@@ -62,6 +106,13 @@
               <div v-else-if="el.clockStyle==='flip'" class="clock-flip"><span class="flip-num">{{ currentTimeStr.slice(0,2) }}</span><span class="flip-sep">:</span><span class="flip-num">{{ currentTimeStr.slice(3,5) }}</span><span class="flip-sep">:</span><span class="flip-num">{{ currentTimeStr.slice(6,8) }}</span></div>
               <div v-else class="clock-digital">{{ currentTimeStr }}</div>
               <div v-if="el.showDate!==false" class="clock-date">{{ currentDateStr }}</div>
+            </div>
+
+            <div v-else-if="['ppt','pdf','word'].includes(el.type)" class="el-doc" :style="{ backgroundImage: el.src ? 'url(' + resolveMediaUrl(el.src) + ')' : 'none', backgroundColor: el.src ? backgroundColor : 'transparent' }">
+              <div v-if="el.src" class="doc-preview">
+                <div style="position:absolute;bottom:8px;right:8px;background:rgba(0,0,0,0.6);color:#fff;font-size:13px;padding:2px 10px;border-radius:4px;z-index:10;">{{ (el.currentPage || 0) + 1 }} / {{ el.totalPages || 1 }}</div>
+              </div>
+              <div v-else class="placeholder-text">{{ el.type === 'ppt' ? '📊' : el.type === 'pdf' ? '📄' : '📝' }} {{ el.label }}<br><span style="font-size:11px;opacity:0.6;">点击右侧上传文件</span></div>
             </div>
 
           </div>
@@ -91,9 +142,18 @@
             <template v-if="selectedEl.type==='video'">
               <el-divider style="margin:4px 0;" />
               <el-form-item label="上传视频">
-                <el-upload :auto-upload="false" :show-file-list="false" accept="video/*" @change="(f)=>handleFileUpload(f,'video')">
-                  <el-button size="small" type="primary">📁 选择文件</el-button>
-                </el-upload>
+                <div style="display:flex;gap:4px;flex-wrap:wrap;">
+                  <el-dropdown trigger="click" @command="(cmd)=>onSingleAddSource(cmd, 'video')">
+                    <el-button size="small" type="primary">🎬 添加视频</el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="upload">📁 本地上传</el-dropdown-item>
+                        <el-dropdown-item v-if="targetGroupId.length===1" command="material">📚 选择素材库</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                  <el-upload ref="videoUploadRef" :auto-upload="false" :show-file-list="false" accept="video/*" @change="(f)=>handleFileUpload(f,'video')" class="single-upload-hidden"></el-upload>
+                </div>
               </el-form-item>
               <el-form-item v-if="uploadProgress > 0 && uploadProgress < 100" label="上传进度">
                 <el-progress :percentage="uploadProgress" :status="uploadProgress === 100 ? 'success' : ''" :stroke-width="8" style="width:100%;" />
@@ -105,6 +165,7 @@
                 <el-form-item label="自动播放"><el-switch v-model="selectedEl.autoplay" @change="emitChange" /></el-form-item>
                 <el-form-item label="静音"><el-switch v-model="selectedEl.muted" @change="emitChange" /></el-form-item>
                 <el-form-item label="循环播放"><el-switch v-model="selectedEl.loop" @change="emitChange" /></el-form-item>
+                <el-form-item label="全屏"><el-switch v-model="selectedEl.fullscreen" @change="onVideoFullscreenToggle" /></el-form-item>
               </div>
               <div v-if="selectedEl.src" class="upload-preview" style="max-height:80px;">
                 <video :src="resolveMediaUrl(selectedEl.src)" :autoplay="selectedEl.autoplay!==false" :muted="selectedEl.muted!==false" :loop="selectedEl.loop!==false" style="width:100%;max-height:80px;border-radius:4px;" />
@@ -114,9 +175,18 @@
             <template v-if="selectedEl.type==='image'">
               <el-divider style="margin:4px 0;" />
               <el-form-item label="上传图片">
-                <el-upload :auto-upload="false" :show-file-list="false" accept="image/*" @change="(f)=>handleFileUpload(f,'image')">
-                  <el-button size="small" type="primary">📁 选择文件</el-button>
-                </el-upload>
+                <div style="display:flex;gap:4px;flex-wrap:wrap;">
+                  <el-dropdown trigger="click" @command="(cmd)=>onSingleAddSource(cmd, 'image')">
+                    <el-button size="small" type="primary">📁 添加图片</el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="upload">📁 本地上传</el-dropdown-item>
+                        <el-dropdown-item v-if="targetGroupId.length===1" command="material">📚 选择素材库</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                  <el-upload ref="imageUploadRef" :auto-upload="false" :show-file-list="false" accept="image/*" @change="(f)=>handleFileUpload(f,'image')" class="single-upload-hidden"></el-upload>
+                </div>
               </el-form-item>
               <el-form-item v-if="uploadProgress > 0 && uploadProgress < 100" label="上传进度">
                 <el-progress :percentage="uploadProgress" :status="uploadProgress === 100 ? 'success' : ''" :stroke-width="8" style="width:100%;" />
@@ -134,10 +204,39 @@
 
             <template v-if="selectedEl.type==='carousel'">
               <el-divider style="margin:4px 0;" />
-              <el-form-item label="添加图片">
-                <el-upload :auto-upload="false" :show-file-list="false" accept="image/*" @change="(f)=>handleFileUpload(f,'carousel')">
-                  <el-button size="small" type="primary">📁 添加图片</el-button>
-                </el-upload>
+              <el-form-item label="添加素材">
+                <div style="display:flex;gap:4px;flex-wrap:wrap;">
+                  <el-dropdown trigger="click" @command="(cmd)=>onCarouselAddSource('image', cmd)">
+                    <el-button size="small" type="primary">🖼 图片</el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="upload">📁 本地上传</el-dropdown-item>
+                        <el-dropdown-item v-if="targetGroupId.length===1" command="material">📚 选择素材库</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                  <el-dropdown trigger="click" @command="(cmd)=>onCarouselAddSource('video', cmd)">
+                    <el-button size="small" type="success">🎬 视频</el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="upload">📁 本地上传</el-dropdown-item>
+                        <el-dropdown-item v-if="targetGroupId.length===1" command="material">📚 选择素材库</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                  <el-upload ref="carouselUploadRef" :auto-upload="false" :show-file-list="false" accept="image/*" @change="(f)=>handleFileUpload(f,'carousel')" class="single-upload-hidden"></el-upload>
+                  <el-upload ref="carouselVideoUploadRef" :auto-upload="false" :show-file-list="false" accept="video/*" @change="(f)=>handleFileUpload(f,'carousel-video')" class="single-upload-hidden"></el-upload>
+                  <el-dropdown trigger="click" @command="(cmd)=>onCarouselAddSource('doc', cmd)">
+                    <el-button size="small" type="warning">📄 文档</el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="upload">📁 本地上传</el-dropdown-item>
+                        <el-dropdown-item v-if="targetGroupId.length===1" command="material">📚 选择素材库</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                  <el-upload ref="carouselDocUploadRef" :auto-upload="false" :show-file-list="false" accept=".ppt,.pptx,.pdf,.doc,.docx" @change="(f)=>handleDocUpload(f, selectedEl, true)" class="single-upload-hidden"></el-upload>
+                </div>
               </el-form-item>
               <el-form-item v-if="uploadProgress > 0 && uploadProgress < 100" label="上传进度">
                 <el-progress :percentage="uploadProgress" :status="uploadProgress === 100 ? 'success' : ''" :stroke-width="8" style="width:100%;" />
@@ -145,13 +244,22 @@
               <el-form-item label="切换间隔(秒)">
                 <el-input-number v-model="selectedEl.interval" :min="1" :max="60" style="width:100%;" @change="emitChange" />
               </el-form-item>
+              <el-form-item label="全屏"><el-switch v-model="selectedEl.fullscreen" @change="onCarouselFullscreenToggle" /></el-form-item>
               <div class="img-list">
-                <div v-for="(img,ci) in selectedEl.images||[]" :key="ci" class="img-item">
-                  <img :src="resolveMediaUrl(img)" style="width:36px;height:24px;object-fit:contain;border-radius:2px;" />
-                  <span>第{{ ci+1 }}张</span>
+                <div v-for="(item,ci) in selectedEl.images||[]" :key="ci" class="img-item">
+                  <template v-if="typeof item === 'string'">
+                    <img :src="resolveMediaUrl(item)" style="width:36px;height:24px;object-fit:contain;border-radius:2px;" />
+                    <span>图片 {{ ci+1 }}</span>
+                  </template>
+                  <template v-else>
+                    <img v-if="item.type==='image'" :src="resolveMediaUrl(item.src)" style="width:36px;height:24px;object-fit:contain;border-radius:2px;" />
+                    <span v-else-if="item.type==='docImage'" style="font-size:18px;">📄</span>
+                    <span v-else style="font-size:18px;">🎬</span>
+                    <span>{{ item.type==='image' ? '图片' : item.type==='docImage' ? '文档' : '视频' }} {{ ci+1 }}</span>
+                  </template>
                   <el-button size="small" type="danger" link @click="selectedEl.images.splice(ci,1);emitChange">×</el-button>
                 </div>
-                <div v-if="!selectedEl.images||!selectedEl.images.length" style="font-size:11px;color:#909399;padding:4px;">暂无图片</div>
+                <div v-if="!selectedEl.images||!selectedEl.images.length" style="font-size:11px;color:#909399;padding:4px;">暂无素材</div>
               </div>
             </template>
 
@@ -212,6 +320,49 @@
                 <el-form-item label="是否显示日期"><el-switch v-model="selectedEl.showDate" @change="emitChange" /></el-form-item>
               </div>
             </template>
+            <template v-if="['ppt','pdf','word'].includes(selectedEl.type)">
+              <el-divider style="margin:4px 0;" />
+              <el-form-item label="文件">
+                <div style="display:flex;flex-direction:column;gap:6px;width:100%;">
+                  <el-dropdown trigger="click" @command="(cmd)=>onSingleAddSource(cmd, selectedEl.type, true)">
+                    <el-button size="small" type="primary">📤 添加{{ selectedEl.type === 'ppt' ? 'PPT' : selectedEl.type === 'pdf' ? 'PDF' : 'Word' }}</el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="upload">📁 本地上传</el-dropdown-item>
+                        <el-dropdown-item v-if="targetGroupId.length===1" command="material">📚 选择素材库</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                  <el-upload ref="docUploadRef" :auto-upload="false" :show-file-list="false" :accept="selectedEl.type === 'ppt' ? '.ppt,.pptx' : selectedEl.type === 'pdf' ? '.pdf' : '.doc,.docx'" @change="(f)=>handleDocUpload(f, selectedEl)" class="single-upload-hidden"></el-upload>
+                  <div v-if="uploadProgress > 0 && uploadProgress < 100" style="margin:2px 0;">
+                    <el-progress :percentage="uploadProgress" :status="uploadProgress === 100 ? 'success' : ''" :stroke-width="6" />
+                  </div>
+                  <div v-if="selectedEl.fileName" class="upload-preview" style="padding:4px 8px;">
+                    <span style="font-size:12px;color:#aaa;">📄 {{ selectedEl.fileName }}</span>
+                    <span style="font-size:11px;color:#666;margin-left:8px;">{{ selectedEl.totalPages || '?' }}页</span>
+                  </div>
+                  <div v-if="selectedEl.totalPages > 0" class="upload-preview" style="max-height:100px;overflow:hidden;">
+                    <img :src="resolveMediaUrl(selectedEl.src)" style="width:100%;height:80px;object-fit:contain;border-radius:4px;background:#111;" />
+                  </div>
+                </div>
+              </el-form-item>
+              <el-form-item label="播放速度">
+                <el-select v-model="selectedEl.playSpeed" style="width:100%;" @change="emitChange">
+                  <el-option label="2 秒/页" :value="2" />
+                  <el-option label="3 秒/页" :value="3" />
+                  <el-option label="5 秒/页" :value="5" />
+                  <el-option label="8 秒/页" :value="8" />
+                  <el-option label="10 秒/页" :value="10" />
+                </el-select>
+              </el-form-item>
+              <el-form-item v-if="selectedEl.totalPages > 1" label="预览页">
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <el-button size="small" :disabled="selectedEl.currentPage <= 0" @click="selectedEl.currentPage--; selectedEl.src = selectedEl.srcList[selectedEl.currentPage]; emitChange()">◀</el-button>
+                  <span style="font-size:12px;color:#ccc;">{{ (selectedEl.currentPage || 0) + 1 }} / {{ selectedEl.totalPages }}</span>
+                  <el-button size="small" :disabled="(selectedEl.currentPage || 0) >= selectedEl.totalPages - 1" @click="selectedEl.currentPage++; selectedEl.src = selectedEl.srcList[selectedEl.currentPage]; emitChange()">▶</el-button>
+                </div>
+              </el-form-item>
+            </template>
             <el-divider style="margin:8px 0;" />
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
               <el-button size="small" @click="copyElement" style="flex:1;">📋 复制</el-button>
@@ -226,7 +377,20 @@
           <el-divider style="margin:8px 0;" />
           <el-form label-position="top" size="small">
             <el-form-item label="背景色"><el-color-picker v-model="backgroundColor" show-alpha @change="onSettingChange" /></el-form-item>
-            <el-form-item label="背景图"><el-upload :auto-upload="false" :show-file-list="false" accept="image/*" @change="(f)=>handleFileUpload(f,'bg')"><el-button size="small" type="primary">选择文件</el-button></el-upload></el-form-item>
+            <el-form-item label="背景图">
+              <div style="display:flex;gap:4px;flex-wrap:wrap;">
+                <el-dropdown trigger="click" @command="(cmd)=>onBgAddSource(cmd)">
+                  <el-button size="small" type="primary">🖼 选择背景</el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item command="upload">📁 本地上传</el-dropdown-item>
+                      <el-dropdown-item v-if="targetGroupId.length===1" command="material">📚 选择素材库</el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+                <el-upload ref="bgUploadRef" :auto-upload="false" :show-file-list="false" accept="image/*" @change="(f)=>handleFileUpload(f,'bg')" class="single-upload-hidden"></el-upload>
+              </div>
+            </el-form-item>
             <el-form-item v-if="uploadProgress > 0 && uploadProgress < 100" label="上传进度">
               <el-progress :percentage="uploadProgress" :status="uploadProgress === 100 ? 'success' : ''" :stroke-width="8" style="width:100%;" />
             </el-form-item>
@@ -246,7 +410,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getScreenDetail, saveScreen, updateScreen, uploadFile, getServerTerminalList,
          requestUploadToken, terminalUploadSimple, terminalInitUpload,
-         terminalUploadChunk, terminalCompleteUpload, recordUpload } from '@/api/screen'
+         terminalUploadChunk, terminalCompleteUpload, recordUpload,
+         terminalFetchResources } from '@/api/screen'
 
 const route = useRoute()
 const router = useRouter()
@@ -269,6 +434,203 @@ const selectedIdx = ref(-1)
 const dirty = ref(false)
 
 // ===== 上传进度 =====
+// ==== 素材库 ====
+const showMaterialPicker = ref(false)  // 轮播从素材库选择弹窗
+const materialPickerType = ref('image')  // 当前从素材库选择的类型
+const previewMaterial = ref(null)  // 弹窗中当前预览的素材
+const materialTab = ref('image')
+const materialImages = ref([])
+const materialVideos = ref([])
+const materialFiles = ref([])
+const hoveredMaterial = ref(null)  // 当前鼠标悬浮的素材（预览弹窗）
+
+/**
+ * 加载终端素材列表（绑定单个终端时调用）
+ */
+async function loadMaterialList() {
+  const ids = targetGroupId.value
+  if (ids.length !== 1) return
+  const term = serverTerminals.value.find(t => t.id === ids[0])
+  if (!term?.ipAddress) return
+  try {
+    // 不传 screenId 让终端返回全部素材（素材上传时 screen_ids 存的是 temp，传真实 ID 查不到）
+    const res = await terminalFetchResources(term.ipAddress, '')
+    const list = res.resources || []
+    materialImages.value = list.filter(i => i.category === 'image').map(i => ({ ...i, url: i.file_hash || i.id }))
+    materialVideos.value = list.filter(i => i.category === 'video').map(i => ({ ...i, url: i.file_hash || i.id }))
+    materialFiles.value = list.filter(i => i.category === 'file').map(i => ({ ...i, url: i.file_hash || i.id }))
+  } catch (e) {
+    console.warn('[ScreenEditor] 素材列表加载失败:', e?.message || e)
+  }
+}
+
+function onMaterialDragStart(e, item) {
+  e.dataTransfer.setData('materialUrl', item.url)
+  e.dataTransfer.setData('materialType', item.category || item.type || 'image')
+  e.dataTransfer.setData('materialName', item.file_name || item.name || '')
+  e.dataTransfer.effectAllowed = 'copy'
+}
+
+function onBgAddSource(command) {
+  if (command === 'upload') {
+    if (bgUploadRef.value) {
+      bgUploadRef.value.$el.querySelector('input')?.click()
+    }
+  } else if (command === 'material') {
+    materialPickerType.value = 'image'
+    showMaterialPicker.value = true
+  }
+}
+
+function onSingleAddSource(command, type, isDoc) {
+  const uploadRefs = { image: imageUploadRef, video: videoUploadRef, ppt: docUploadRef, pdf: docUploadRef, word: docUploadRef }
+  if (command === 'upload') {
+    const ref = uploadRefs[type]
+    if (ref && ref.value) {
+      ref.value.$el.querySelector('input')?.click()
+    }
+  } else if (command === 'material') {
+    materialPickerType.value = 'image'  // 单组件素材库只显示图片/视频
+    showMaterialPicker.value = true
+  }
+}
+
+function onCarouselAddSource(type, command) {
+  if (command === 'upload') {
+    // 触发隐藏的 el-upload 选择文件
+    if (type === 'image' && carouselUploadRef.value) {
+      carouselUploadRef.value.$el.querySelector('input')?.click()
+    } else if (type === 'video' && carouselVideoUploadRef.value) {
+      carouselVideoUploadRef.value.$el.querySelector('input')?.click()
+    } else if (type === 'doc' && carouselDocUploadRef.value) {
+      carouselDocUploadRef.value.$el.querySelector('input')?.click()
+    }
+  } else if (command === 'material') {
+    materialPickerType.value = type
+    showMaterialPicker.value = true
+  }
+}
+
+function onMaterialPickerOpen() {
+  previewMaterial.value = null
+  // 根据调用来源设置默认 Tab
+  if (materialPickerType.value === 'video' || materialPickerType.value === 'doc') {
+    materialTab.value = 'image'
+  } else {
+    materialTab.value = 'image'
+  }
+}
+
+function onMaterialPickerConfirm(item) {
+  const el = selectedEl.value
+  const cat = item.category || item.type
+  const src = item.url || item.file_hash || item.src
+  if (!src) return
+
+  // 背景图：没有选中组件时直接赋值 backgroundImage
+  if (!el) {
+    backgroundImage.value = src
+    showMaterialPicker.value = false
+    onSettingChange()
+    return
+  }
+
+  if (el.type === 'carousel') {
+    // 轮播：添加到 images 数组
+    if (!el.images) el.images = []
+    if (cat === 'image') {
+      el.images.push(src)
+    } else if (cat === 'video') {
+      el.images.push({ type: 'video', src })
+    } else {
+      el.images.push(src)
+    }
+    if (el.fullscreen) {
+      el.w = pageWidth.value
+      el.h = pageHeight.value
+      el.x = 0
+      el.y = 0
+    }
+  } else if (el.type === 'image' || el.type === 'video') {
+    // 图片/视频：直接设置 src
+    el.src = src
+    el.fileName = item.file_name || item.name || ''
+  } else if (['ppt','pdf','word'].includes(el.type)) {
+    // 文档：设置 src 为首图
+    if (cat === 'image' || cat === 'file') {
+      el.src = src
+      el.fileName = item.file_name || item.name || ''
+      el.srcList = [src]
+      el.totalPages = 1
+    }
+  }
+  showMaterialPicker.value = false
+  emitChange()
+}
+
+function addMaterialToCarousel(item) {
+  if (!selectedEl.value || selectedEl.value.type !== 'carousel') return
+  const el = selectedEl.value
+  if (!el.images) el.images = []
+  const cat = item.category || item.type
+  const src = item.url || item.file_hash || item.src
+  if (!src) return
+  if (cat === 'image') {
+    el.images.push(src)
+  } else if (cat === 'video') {
+    el.images.push({ type: 'video', src })
+  } else if (cat === 'file') {
+    el.images.push(src)
+  }
+  showMaterialPicker.value = false
+  // 如果全屏已开，触发全屏尺寸更新
+  if (el.fullscreen) {
+    el.w = pageWidth.value
+    el.h = pageHeight.value
+    el.x = 0
+    el.y = 0
+  }
+  emitChange()
+}
+
+function insertMaterialToCanvas(item) {
+  // 根据素材类型创建对应组件插入画布
+  let type = item.category || item.type
+  if (type === 'image' || type === 'video') { /* ok */ }
+  else return // 文件暂不支持直接插入画布
+  const ph = pageHeight.value
+  const pw = pageWidth.value
+  const w = Math.min(400, pw * 0.4)
+  const h = type === 'video' ? Math.round(w * 9/16) : Math.round(w * 9/16)
+  const el = {
+    id: 'el_' + type + '_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
+    type,
+    x: Math.max(0, (pw - w) / 2),
+    y: Math.max(0, (ph - h) / 2),
+    w, h,
+    zIndex: elements.value.length + 1,
+    layoutMode: 'block',
+    src: item.url,
+    label: type === 'image' ? '图片' : '视频',
+  }
+  if (type === 'video') {
+    el.autoplay = true; el.loop = true; el.muted = true
+  }
+  if (type === 'image') {
+    el.opacity = 1
+  }
+  elements.value.push(el)
+  selectedIdx.value = elements.value.length - 1
+  dirty.value = true
+}
+
+const bgUploadRef = ref(null)
+const imageUploadRef = ref(null)
+const videoUploadRef = ref(null)
+const docUploadRef = ref(null)
+const carouselUploadRef = ref(null)
+const carouselVideoUploadRef = ref(null)
+const carouselDocUploadRef = ref(null)
 const uploadProgress = ref(0)           // 当前上传进度百分比（0-100）
 const uploading = ref(false)            // 是否正在上传中
 const chunkEnabledThreshold = 104857600 // 100MB，超过此值走切片上传（与后端配置一致）
@@ -288,6 +650,9 @@ const componentTypes = [
   { type: 'text', icon: '📝', label: '文字' },
   { type: 'scrollText', icon: '📜', label: '滚动文本' },
   { type: 'clock', icon: '🕐', label: '时间' },
+  { type: 'ppt', icon: '📊', label: 'PPT' },
+  { type: 'pdf', icon: '📄', label: 'PDF' },
+  { type: 'word', icon: '📝', label: 'Word' },
 ]
 
 // ==== 运行时状态 ====
@@ -338,13 +703,16 @@ function emitChange() { dirty.value = true }
 function onCanvasClick() { selectedIdx.value = -1 }
 
 // ==== 生命周期 ====
-onMounted(() => {
+onMounted(async () => {
   isEditMode.value = !!recordId.value
-  loadServerTerminals()
+  await loadServerTerminals()
   updateClock()
   clockTimer = setInterval(updateClock, 1000)
-  if (recordId.value) loadRecord(recordId.value)
-  else {
+  if (recordId.value) {
+    loadRecord(recordId.value)
+    // 编辑模式下等大屏数据加载完再加载素材库
+    setTimeout(() => loadMaterialList(), 3000)
+  } else {
     elements.value = []; startCarouselTimer()
     fitScreen()
   }
@@ -387,6 +755,30 @@ function updateClock() {
 // ==== 画布设置 ====
 function onSettingChange() { dirty.value = true }
 
+function onVideoFullscreenToggle() {
+  if (!selectedEl.value) return
+  const el = selectedEl.value
+  if (el.fullscreen) {
+    el.w = pageWidth.value
+    el.h = pageHeight.value
+    el.x = 0
+    el.y = 0
+  }
+  dirty.value = true
+}
+
+function onCarouselFullscreenToggle() {
+  if (!selectedEl.value) return
+  const el = selectedEl.value
+  if (el.fullscreen) {
+    el.w = pageWidth.value
+    el.h = pageHeight.value
+    el.x = 0
+    el.y = 0
+  }
+  dirty.value = true
+}
+
 function onPresetChange(val) {
   if (val[0] === 0) return
   pageWidth.value = val[0]; pageHeight.value = val[1]
@@ -428,6 +820,129 @@ function resolveMediaUrl(name) {
 
 function onMediaError(e) {
   console.warn('[ScreenEditor] 媒体资源加载失败:', e?.message || e)
+}
+
+// ==== 文档上传（PPT/PDF/Word -> 直连终端转换）====
+/**
+ * 上传文档文件到终端，终端自动转换为图片序列
+ */
+async function handleDocUpload(fileInfo, el, appendToCarousel) {
+  const rawFile = fileInfo.raw || fileInfo.file || fileInfo
+  if (!rawFile) {
+    console.log('[handleDocUpload] 没有文件', fileInfo)
+    return
+  }
+  console.log('[handleDocUpload] 开始上传', rawFile.name, 'appendToCarousel=', appendToCarousel)
+
+  const terminalIds = targetGroupId.value
+  if (!terminalIds || terminalIds.length === 0) {
+    ElMessage.warning('请先绑定至少一个终端再上传')
+    return
+  }
+  const firstTerm = serverTerminals.value.find(x => x.id === terminalIds[0])
+  if (!firstTerm || !firstTerm.ipAddress) {
+    ElMessage.warning('终端信息不完整')
+    return
+  }
+
+  if (rawFile.size > UPLOAD_FILE_SIZE_LIMIT) {
+    ElMessage.error('文件大小不能超过 500MB')
+    return
+  }
+
+  uploading.value = true
+  uploadProgress.value = 0
+
+  try {
+    // 上传到第一个终端（多个终端则同步到所有终端）
+    const termIp = firstTerm.ipAddress
+    let uploadResult = null
+
+    // 获取上传令牌
+    const tokenRes = await requestUploadToken({ terminalIp: termIp, screenId: recordId.value || 'temp' })
+    if (tokenRes.code !== 0 || !tokenRes.data?.uploadToken) {
+      throw new Error('获取上传令牌失败')
+    }
+    const uploadToken = tokenRes.data.uploadToken
+
+    // 上传文件
+    if (rawFile.size > chunkEnabledThreshold) {
+      uploadResult = await uploadByChunks(rawFile, 'doc', termIp, 0, 1)
+    } else {
+      uploadResult = await uploadDirect(rawFile, 'doc', termIp, 0, 1)
+    }
+
+    // 同步到其他终端
+    for (let ti = 1; ti < terminalIds.length; ti++) {
+      const term = serverTerminals.value.find(x => x.id === terminalIds[ti])
+      if (term && term.ipAddress && term.ipAddress !== termIp) {
+        try {
+          const tr = await requestUploadToken({ terminalIp: term.ipAddress, screenId: recordId.value || 'temp' })
+          if (tr.code === 0 && tr.data?.uploadToken) {
+            if (rawFile.size > chunkEnabledThreshold) {
+              await uploadByChunks(rawFile, 'doc', term.ipAddress, ti, terminalIds.length)
+            } else {
+              await uploadDirect(rawFile, 'doc', term.ipAddress, ti, terminalIds.length)
+            }
+          }
+        } catch (e2) {
+          console.warn('[upload] 同步到终端', term.ipAddress, '失败:', e2?.message)
+        }
+      }
+    }
+
+    // 上传完成，检查转换结果
+    uploadProgress.value = 95
+    if (uploadResult && uploadResult.docConvertError) {
+      console.warn('[handleDocUpload] 转换异常:', uploadResult.docConvertError)
+    }
+
+    // 如果终端同步返回了 docImages，不需要等待；否则等 2 秒兜底
+    if (!(uploadResult && uploadResult.docImages && uploadResult.docImages.length > 0)) {
+      await new Promise(r => setTimeout(r, 2000))
+    }
+    uploadProgress.value = 99
+
+    // 更新组件属性
+    el.fileName = rawFile.name
+    if (uploadResult && uploadResult.docImages && uploadResult.docImages.length > 0) {
+      if (appendToCarousel) {
+        // 追加到轮播（每页作为图片，标记为文档图片类型，始终 contain 不裁剪）
+        if (!el.images) el.images = []
+        uploadResult.docImages.forEach(h => {
+          el.images.push({ type: 'docImage', src: h })
+        })
+      } else {
+        el.src = uploadResult.docImages[0]
+        el.srcList = uploadResult.docImages
+        el.totalPages = uploadResult.docTotalPages || uploadResult.docImages.length
+      }
+    } else if (typeof uploadResult === 'string') {
+      el.src = uploadResult
+      el.srcList = [uploadResult]
+      el.totalPages = 1
+    } else if (uploadResult && uploadResult.fileHash) {
+      el.src = uploadResult.fileHash
+      el.srcList = [uploadResult.fileHash]
+      el.totalPages = 1
+    } else {
+      // 兜底：没有任何转换结果时先设一个占位值
+      console.warn('[handleDocUpload] 未收到 docImages，可能终端未安装转换依赖', uploadResult)
+      el.src = uploadResult?.fileHash || ''
+      el.srcList = []
+      el.totalPages = 0
+    }
+    el.currentPage = 0
+    dirty.value = true
+
+    uploadProgress.value = 100
+    ElMessage.success('文件上传并转换成功')
+  } catch (e) {
+    ElMessage.error('上传失败: ' + (e?.message || '未知错误'))
+  } finally {
+    uploading.value = false
+    setTimeout(() => { uploadProgress.value = 0 }, 1000)
+  }
 }
 
 // ==== 文件上传 ====
@@ -493,6 +1008,9 @@ async function handleFileUpload(fileInfo, targetType) {
       } else if (targetType === 'carousel' && selectedEl.value) {
         if (!selectedEl.value.images) selectedEl.value.images = []
         selectedEl.value.images.push(objectName)
+      } else if (targetType === 'carousel-video' && selectedEl.value) {
+        if (!selectedEl.value.images) selectedEl.value.images = []
+        selectedEl.value.images.push({ type: 'video', src: objectName })
       } else if (targetType === 'bg') {
         backgroundImage.value = objectName
       }
@@ -526,6 +1044,7 @@ function uploadDirect(rawFile, targetType, terminalIp, ti, totalTerminals) {
   return new Promise(async (resolve, reject) => {
     try {
       // 1. 获取上传令牌
+      uploadProgress.value = Math.max(uploadProgress.value, Math.round(termProgress + 5 / totalTerminals))
       const tokenRes = await requestUploadToken({
         terminalIp: terminalIp,
         screenId: recordId.value || 'temp',
@@ -536,7 +1055,10 @@ function uploadDirect(rawFile, targetType, terminalIp, ti, totalTerminals) {
       }
       const uploadToken = tokenRes.data.uploadToken
 
-      // 2. 直连终端上传（纯二进制 body，绕过 axios）
+      // 2. 上传进度提示
+      uploadProgress.value = Math.max(uploadProgress.value, Math.round(termProgress + 10 / totalTerminals))
+
+      // 3. 直连终端上传（纯二进制 body，绕过 axios）
       const res = await terminalUploadSimple(terminalIp, rawFile, uploadToken)
       if (res && res.fileHash) {
         uploadProgress.value = Math.round(termProgress + 99 / totalTerminals)
@@ -553,7 +1075,12 @@ function uploadDirect(rawFile, targetType, terminalIp, ti, totalTerminals) {
         if (targetType === 'bg') {
           backgroundImage.value = res.fileHash
         }
-        resolve(res.fileHash)
+        // 文档上传时返回完整对象（带 docImages），否则返回 fileHash 字符串
+        if (targetType === 'doc') {
+          resolve(res)
+        } else {
+          resolve(res.fileHash)
+        }
       } else {
         reject(new Error((res && res.error) || '上传失败'))
       }
@@ -584,6 +1111,8 @@ async function uploadByChunks(rawFile, targetType, terminalIp, ti, totalTerminal
     throw new Error('获取上传令牌失败')
   }
   const uploadToken = tokenRes.data.uploadToken
+
+  uploadProgress.value = Math.max(uploadProgress.value, Math.round(termProgress + 5 / totalTerminals))
 
   // ===== Step 1: 直连终端初始化（断点续传）=====
   const totalUploadChunks = Math.ceil(rawFile.size / CHUNK_SIZE)
@@ -693,6 +1222,10 @@ async function uploadByChunks(rawFile, targetType, terminalIp, ti, totalTerminal
     fileName: completeRes.fileName || rawFile.name,
     fileSize: completeRes.fileSize || rawFile.size,
   }).catch(() => {})
+  // 文档上传时返回完整对象
+  if (targetType === 'doc') {
+    return completeRes
+  }
   return completeRes.fileHash
 }
 
@@ -704,6 +1237,33 @@ function onDragStart(e, type) {
 
 async function onDrop(e) {
   const type = e.dataTransfer.getData('componentType')
+  const materialType = e.dataTransfer.getData('materialType')
+  const materialUrl = e.dataTransfer.getData('materialUrl')
+  const materialName = e.dataTransfer.getData('materialName') || ''
+
+  // 从素材库拖来的
+  if (materialUrl) {
+    if (!materialType || (materialType !== 'image' && materialType !== 'video')) {
+      ElMessage.warning('该素材类型暂不支持拖入画布')
+      return
+    }
+    const rect = canvasRef.value.getBoundingClientRect()
+    const sf = zoom.value / 100
+    let x = Math.round((e.clientX - rect.left) / sf)
+    let y = Math.round((e.clientY - rect.top) / sf)
+    const el = createElement(materialType, x, y)
+    el.src = materialUrl
+    el.fileName = materialName
+    el.srcList = [materialUrl]
+    elements.value.push(el)
+    selectedIdx.value = elements.value.length - 1
+    dirty.value = true
+    clampAllElements()
+    startCarouselForElement(el)
+    return
+  }
+
+  // 从组件库拖来的
   if (!type) return
   const rect = canvasRef.value.getBoundingClientRect()
   const sf = zoom.value / 100
@@ -732,22 +1292,28 @@ async function onDrop(e) {
 
 function createElement(type, x, y) {
   const pw = pageWidth.value, ph = pageHeight.value
-  const sizes = { video:[480,360], image:[480,360], carousel:[960,540], text:[400,100], scrollText:[900,80], clock:[250,100] }
+  const sizes = { video:[480,360], image:[480,360], carousel:[960,540], text:[400,100], scrollText:[900,80], clock:[250,100], iframe:[800,600] }
   let defW = 300, defH = 200
   if (sizes[type]) { defW = sizes[type][0]; defH = sizes[type][1] }
+  // 文档组件（PPT/PDF/Word）默认铺满全屏
+  if (['ppt','pdf','word'].includes(type)) { defW = pw; defH = ph }
   if (x === undefined) x = Math.round((pw - defW) / 2)
   if (y === undefined) y = Math.round((ph - defH) / 2)
   x = Math.max(0, Math.min(x, pw - defW))
   y = Math.max(0, Math.min(y, ph - defH))
+  // 文档组件始终从 (0,0) 撑满
+  if (['ppt','pdf','word'].includes(type)) { x = 0; y = 0 }
 
-  const base = { id: 'el_' + type + '_' + Date.now() + '_' + Math.random().toString(36).slice(2,6), type, x, y, w: defW, h: defH, zIndex: 1, layoutMode: ['video','image','carousel'].includes(type) ? 'block' : 'float', label: componentTypes.find(c=>c.type===type)?.label || type }
+  const lmode = ['ppt','pdf','word'].includes(type) ? 'block' : (['video','image','carousel'].includes(type) ? 'block' : 'float')
+  const base = { id: 'el_' + type + '_' + Date.now() + '_' + Math.random().toString(36).slice(2,6), type, x, y, w: defW, h: defH, zIndex: 1, layoutMode: lmode, label: componentTypes.find(c=>c.type===type)?.label || type }
 
   if (type === 'video') { base.src = ''; base.autoplay = true; base.loop = true; base.muted = true }
   else if (type === 'image') { base.src = ''; base.opacity = 1 }
-  else if (type === 'carousel') { base.images = []; base.interval = 3 }
+  else if (type === 'carousel') { base.images = []; base.interval = 3; base.fullscreen = false }
   else if (type === 'text') { base.content = ''; base.fontSize = 28; base.color = '#ffffff'; base.bold = false; base.textAlign = 'center'; base.fontFamily = '' }
   else if (type === 'scrollText') { base.content = ''; base.fontSize = 24; base.color = '#ffffff'; base.backgroundColor = 'transparent'; base.speed = 'medium'; base.fontFamily = '' }
   else if (type === 'clock') { base.fontSize = 36; base.color = '#00ffcc'; base.fontFamily = 'monospace'; base.clockStyle = 'digital'; base.showDate = true; base.backgroundColor = 'transparent' }
+  else if (['ppt','pdf','word'].includes(type)) { base.src = ''; base.fileName = ''; base.srcList = []; base.currentPage = 0; base.playSpeed = 3; base.totalPages = 0 }
 
   return base
 }
@@ -898,11 +1464,43 @@ function startCarouselForElement(el) {
   if (allCarouselTimers[el.id]) clearInterval(allCarouselTimers[el.id])
   if (!carouselState[el.id]) carouselState[el.id] = 0
   const interval = (el.interval || 3) * 1000
+  clearCarouselTimer(el.id)
   allCarouselTimers[el.id] = setInterval(() => {
     const arr = el.images || []
     if (!arr.length) return
-    carouselState[el.id] = (carouselState[el.id] + 1) % arr.length
+    const ci = carouselState[el.id]
+    const item = arr[ci]
+    // 如果是视频，不要用 interval 自动切，等 ended 事件
+    if (item && typeof item === 'object' && item.type === 'video') return
+    carouselState[el.id] = (ci + 1) % arr.length
   }, interval)
+}
+
+function clearCarouselTimer(elId) {
+  if (allCarouselTimers[elId]) {
+    clearInterval(allCarouselTimers[elId])
+    delete allCarouselTimers[elId]
+  }
+}
+
+function onCarouselVideoEnded(el, item) {
+  if (!el || !el.images) return
+  const ci = carouselState[el.id]
+  // 找到当前视频索引，切到下一个
+  const arr = el.images
+  let nextIdx = 0
+  if (ci !== undefined) {
+    nextIdx = (ci + 1) % arr.length
+  }
+  carouselState[el.id] = nextIdx
+  // 如果下一个是视频，不用 timer，等它的 ended 事件
+  const nextItem = arr[nextIdx]
+  if (nextItem && typeof nextItem === 'object' && nextItem.type === 'video') {
+    // 清除 timer 防止干扰
+    clearCarouselTimer(el.id)
+  }
+  // 触发 Vue 响应式
+  dirty.value = true
 }
 
 // ==== 滚动文本速度 ====
@@ -963,6 +1561,8 @@ async function loadRecord(id) {
 }
 
 async function handleSave() {
+  // 保存前校验终端分辨率一致性
+  if (!checkResolutionConflict()) { return }
   if (!publishTitle.value) { ElMessage.warning('请输入大屏标题'); return }
   const layoutJson = JSON.stringify({
     elements: elements.value,
@@ -1010,6 +1610,28 @@ function onTargetGroupChange() {
     ElMessage.warning('最多只能选择20个终端')
     targetGroupId.value = targetGroupId.value.slice(0, 20)
   }
+  // 校验所有选中终端的分辨率是否一致
+  if (targetGroupId.value.length > 1) {
+    const terms = targetGroupId.value.map(id => serverTerminals.value.find(t => t.id === id)).filter(Boolean)
+    const first = terms[0]
+    const diff = terms.find(t => t.screenWidth !== first.screenWidth || t.screenHeight !== first.screenHeight)
+    if (diff) {
+      ElMessage.warning('所选终端的屏幕分辨率不一致，无法同时绑定，请重新选择分辨率相同的终端')
+      targetGroupId.value = []
+      return
+    }
+  }
+  // 选取第一个终端，自动填入分辨率到画布
+  if (targetGroupId.value.length > 0) {
+    const firstId = targetGroupId.value[0]
+    const firstTerm = serverTerminals.value.find(t => t.id === firstId)
+    if (firstTerm && firstTerm.screenWidth && firstTerm.screenHeight) {
+      pageWidth.value = firstTerm.screenWidth
+      pageHeight.value = firstTerm.screenHeight
+    }
+  }
+  // 加载素材库
+  nextTick(() => loadMaterialList())
   dirty.value = true
 }
 
@@ -1041,6 +1663,39 @@ function handlePreview() {
   // 在新窗口打开终端 3001 预览页
   const url = `http://${firstTerm.ipAddress}:3001/preview/${recordId.value}`
   window.open(url, '_blank')
+}
+
+/**
+ * 校验已选终端的分辨率是否一致
+ * @returns {boolean} true-校验通过 false-校验不通过
+ */
+function checkResolutionConflict() {
+  const ids = targetGroupId.value
+  if (!ids || ids.length === 0) {
+    ElMessage.warning('请先绑定终端')
+    return false
+  }
+  // 以第一个终端为基准
+  const firstId = ids[0]
+  const firstTerm = serverTerminals.value.find(t => t.id === firstId)
+  if (!firstTerm || !firstTerm.screenWidth || !firstTerm.screenHeight) {
+    ElMessage.warning('第一个绑定的终端分辨率信息不完整，请确认终端已设置分辨率')
+    return false
+  }
+  const baseW = firstTerm.screenWidth
+  const baseH = firstTerm.screenHeight
+  const conflictList = []
+  for (let i = 1; i < ids.length; i++) {
+    const t = serverTerminals.value.find(x => x.id === ids[i])
+    if (t && (t.screenWidth !== baseW || t.screenHeight !== baseH)) {
+      conflictList.push(`${t.equipmentName} (${t.screenWidth || '?'}x${t.screenHeight || '?'})`)
+    }
+  }
+  if (conflictList.length > 0) {
+    ElMessage.warning(`以下终端分辨率与画布设置(${baseW}x${baseH})不一致，无法保存/发布：<br>${conflictList.join('<br>')}`, { dangerouslyUseHTMLString: true, duration: 5000 })
+    return false
+  }
+  return true
 }
 
 function resetCanvas() {
@@ -1272,4 +1927,85 @@ function goBack() {
 .upload-preview { margin: 4px 0; border: 1px solid #2a2a5a; border-radius: 4px; overflow: hidden; }
 .img-list { display: flex; flex-wrap: wrap; gap: 4px; }
 .img-item { display: flex; align-items: center; gap: 4px; padding: 2px 4px; background: #2a2a5a; border-radius: 4px; }
+
+/* 素材库 */
+.material-lib { padding: 0 4px; }
+.material-list { max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.material-empty { font-size: 12px; color: #888; text-align: center; padding: 12px 0; }
+.material-item { display: flex; align-items: center; gap: 6px; padding: 4px 6px; background: #1e1e3a; border-radius: 4px; cursor: grab; transition: background 0.15s; }
+.material-item:hover { background: #2a2a5a; }
+.material-thumb { width: 40px; height: 28px; object-fit: cover; border-radius: 2px; flex-shrink: 0; }
+.material-name { font-size: 12px; color: #ccc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.material-file-icon { font-size: 18px; flex-shrink: 0; }
+
+/* 悬浮预览弹窗（覆盖画布） */
+.material-hover-preview {
+  position: fixed;
+  z-index: 9999;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 70vw;
+  max-width: 960px;
+  height: 80vh;
+  max-height: 640px;
+  background: #0d0d2b;
+  border: 1px solid #3a3a6a;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.7);
+}
+.material-hover-preview img,
+.material-hover-preview video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.material-hover-preview-close {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  color: #fff;
+  font-size: 22px;
+  cursor: pointer;
+  z-index: 10;
+  opacity: 0.7;
+}
+.material-hover-preview-close:hover {
+  opacity: 1;
+}
+
+.single-upload-hidden { display: inline-block; width:0; height:0; overflow:hidden; }
+
+/* 素材选择弹窗预览 */
+.material-picker-preview {
+  width: 240px;
+  min-height: 180px;
+  background: #111;
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.material-picker-preview img,
+.material-picker-preview video {
+  width: 100%;
+  max-height: 280px;
+  object-fit: contain;
+}
+.material-item-active {
+  background: #3a3a7a !important;
+  border: 1px solid #6a6aff;
+}
+
+/* 文档组件（PPT/PDF/Word）*/
+.el-doc { width: 100%; height: 100%; position: relative; overflow: hidden; background-size: contain; background-position: center; background-repeat: no-repeat; }
+.doc-preview { width: 100%; height: 100%; position: relative; }
+.doc-page-indicator { position: absolute; bottom: 4px; right: 4px; background: rgba(0,0,0,0.6); color: #fff; font-size: 11px; padding: 1px 6px; border-radius: 3px; }
 </style>

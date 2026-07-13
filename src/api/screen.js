@@ -402,3 +402,14 @@ export function recordUpload(data) {
     data,
   })
 }
+
+/**
+ * 直连终端资源列表
+ */
+/**
+ * 直连终端资源列表（GET 请求）
+ */
+export function terminalFetchResources(terminalIp, screenId) {
+  const url = 'http://' + terminalIp + ':3001/resources/list?screenId=' + (screenId || '')
+  return fetch(url, { method: 'GET' }).then(r => r.json())
+}

@@ -8,10 +8,10 @@
     <div v-else-if="loading" class="loading-text">加载大屏中...</div>
     <div v-else class="display-canvas" :style="canvasStyle">
       <div v-for="el in elements" :key="el.id" class="display-element" :style="elementStyle(el)">
-        <video v-if="el.type==='video'" :src="resolveMediaUrl(el.src)" autoplay playsinline :loop="el.loop!==false" muted style="width:100%;height:100%;object-fit:contain;display:block;" />
-        <img v-else-if="el.type==='image'" :src="resolveMediaUrl(el.src)" style="width:100%;height:100%;object-fit:contain;display:block;" :style="{ opacity: el.opacity ?? 1 }" />
+        <video v-if="el.type==='video'" :src="resolveMediaUrl(el.src)" autoplay playsinline :loop="el.loop!==false" muted style="width:100%;height:100%;object-fit:fill;display:block;" />
+        <img v-else-if="el.type==='image'" :src="resolveMediaUrl(el.src)" style="width:100%;height:100%;object-fit:fill;display:block;" :style="{ opacity: el.opacity ?? 1 }" />
         <div v-else-if="el.type==='carousel'" class="carousel-wrap">
-          <img v-for="(img, ci) in (el.images||[])" :key="ci" :src="resolveMediaUrl(img)" style="width:100%;height:100%;object-fit:contain;position:absolute;left:0;top:0;" :style="{ opacity: carouselIdx(el.id)===ci ? 1 : 0, transition: 'opacity .6s' }" />
+          <img v-for="(img, ci) in (el.images||[])" :key="ci" :src="resolveMediaUrl(img)" style="width:100%;height:100%;object-fit:fill;position:absolute;left:0;top:0;" :style="{ opacity: carouselIdx(el.id)===ci ? 1 : 0, transition: 'opacity .6s' }" />
         </div>
         <div v-else-if="el.type==='text'" class="el-text" :style="{ fontSize: el.fontSize+'px', color: el.color, fontWeight: el.bold?'bold':'normal', textAlign: el.textAlign||'center', fontFamily: el.fontFamily||'inherit' }">{{ el.content || '' }}</div>
         <div v-else-if="el.type==='scrollText'" class="el-scroll-text">
@@ -131,7 +131,8 @@ function doScale() {
   const w = el.clientWidth, h = el.clientHeight
   const pw = pageWidth.value, ph = pageHeight.value
   if (pw <= 0 || ph <= 0 || w <= 0 || h <= 0) return
-  scale.value = Math.min(w / pw, h / ph)
+  // 使用 Math.max 撑满屏幕不留黑边（超出部分会被裁剪）
+  scale.value = Math.max(w / pw, h / ph)
 }
 
 function updateClock() {
@@ -346,6 +347,17 @@ function connectDisplayWs() {
 }
 
 onMounted(async () => {
+  // 终端浏览器自动全屏（大屏场景）
+  try {
+    const el = document.documentElement
+    if (el.requestFullscreen) {
+      el.requestFullscreen()
+    } else if (el.webkitRequestFullscreen) {
+      el.webkitRequestFullscreen()
+    }
+  } catch (e) {
+    // 非用户手势触发可能被浏览器拒绝，忽略
+  }
   updateClock()
   clockTimer = setInterval(updateClock, 1000)
   window.addEventListener('resize', doScale)
