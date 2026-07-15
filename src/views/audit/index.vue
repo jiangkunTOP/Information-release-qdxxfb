@@ -2,7 +2,7 @@
   <div class="page-container">
     <div class="page-title">
       <el-icon><Document /></el-icon>
-      操作审计
+      操作日志
     </div>
 
     <!-- 搜索/筛选行 -->

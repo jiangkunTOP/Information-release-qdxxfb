@@ -72,6 +72,7 @@
             <el-button link type="primary" size="small" @click="editScreen(row)">编辑</el-button>
             <el-button v-show="false" link type="primary" size="small" @click="previewScreen(row)">预览</el-button>
             <el-button link type="success" size="small" @click="handlePushToTerminal(row)">推送大屏</el-button>
+            <el-button link type="warning" size="small" @click="handleSchedulePublish(row)">定时</el-button>
             <el-button link type="danger" size="small" @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -89,7 +90,6 @@
         />
       </div>
     </div>
-
 
     <!-- 插播时间段选择弹窗（仅紧急插播时弹出） -->
     <el-dialog v-model="publishDialogVisible" title="紧急插播 - 时间段设置" :close-on-click-modal="false" width="420px">
@@ -112,6 +112,50 @@
       </template>
     </el-dialog>
 
+    <!-- 定时发布规则编辑对话框（新版：支持每天/每周/指定日期段） -->
+    <el-dialog v-model="scheduleDialogVisible" title="定时发布规则" :close-on-click-modal="false" width="540px">
+      <div style="padding:10px 0;">
+        <el-form :model="scheduleForm" :rules="scheduleRules" ref="scheduleFormRef" label-width="100px">
+          <el-form-item label="规则类型" prop="ruleType">
+            <el-select v-model="scheduleForm.ruleType" placeholder="选择类型" style="width:100%;">
+              <el-option label="每天" value="daily" />
+              <el-option label="每周" value="weekly" />
+              <el-option label="指定日期段" value="date" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="生效星期" prop="daysOfWeek" v-if="scheduleForm.ruleType === 'weekly'">
+            <el-checkbox-group v-model="scheduleWeeklyDays">
+              <el-checkbox label="1">周一</el-checkbox>
+              <el-checkbox label="2">周二</el-checkbox>
+              <el-checkbox label="3">周三</el-checkbox>
+              <el-checkbox label="4">周四</el-checkbox>
+              <el-checkbox label="5">周五</el-checkbox>
+              <el-checkbox label="6">周六</el-checkbox>
+              <el-checkbox label="7">周日</el-checkbox>
+            </el-checkbox-group>
+          </el-form-item>
+          <el-form-item label="日期范围" prop="specifyStartDate" v-if="scheduleForm.ruleType === 'date'">
+            <el-date-picker v-model="scheduleDateRange" type="daterange" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" style="width:100%;" value-format="YYYY-MM-DD" />
+          </el-form-item>
+          <el-form-item label="亮屏时段" prop="startTime">
+            <el-time-picker v-model="scheduleForm.startTime" format="HH:mm" placeholder="开始时间" style="width:48%;margin-right:4%;" />
+            <el-time-picker v-model="scheduleForm.endTime" format="HH:mm" placeholder="结束时间" style="width:48%;" />
+          </el-form-item>
+          <el-form-item label="备注" prop="remark">
+            <el-input v-model="scheduleForm.remark" placeholder="备注（可选）" maxlength="200" />
+          </el-form-item>
+        </el-form>
+        <div v-if="scheduleHint" style="margin-top:12px;font-size:12px;color:#909399;">
+          {{ scheduleHint }}
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="closeScheduleDialog">取消</el-button>
+        <el-button type="danger" :disabled="!scheduleForm.id" @click="handleDeleteSchedule">删除规则</el-button>
+        <el-button type="warning" :loading="scheduleLoading" @click="confirmScheduleRule">保存规则</el-button>
+      </template>
+    </el-dialog>
+
   </div>
 </template>
 
@@ -119,7 +163,7 @@
 import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listScreen, publishScreen, deleteScreen, pushToTerminal, schedulePublish, cancelSchedulePublish, asyncPushToTerminal, getPublishLogList } from '@/api/screen'
+import { listScreen, publishScreen, deleteScreen, pushToTerminal, schedulePublish, cancelSchedulePublish, asyncPushToTerminal, getPublishLogList, saveScheduleRule, getScheduleRule, deleteScheduleRule } from '@/api/screen'
 
 const router = useRouter()
 const list = ref([])
@@ -218,27 +262,9 @@ function previewScreen(row) {
   router.push(`/screen/preview/${row.id}`)
 }
 
-async function handlePublish(row) {
-  try {
-    await ElMessageBox.confirm(`确定发布「${row.title}」？`, '提示', { type: 'info' })
-  } catch { return }
-  try {
-    const res = await publishScreen({ id: row.id })
-    if (res.code === 0) {
-      ElMessage.success('发布成功')
-      fetchList() // 刷新列表，不跳转，让用户自行决定下一步
-    } else {
-      ElMessage.error(res.message || '发布失败')
-    }
-  } catch (e) { /* ignore */ }
-}
-
-// ==================== 异步推送（离线包 + 进度条） ====================
-
-// ==================== 发布方式选择（v5） ====================
+// ==================== 异步推送 ====================
 
 const publishDialogVisible = ref(false)
-/** 正在推送的大屏行数据，发布确认时使用 */
 const pendingPublishRow = ref(null)
 
 const publishConfig = reactive({
@@ -257,19 +283,14 @@ async function handlePushToTerminal(row) {
     return
   }
   if (row.publishType === 'interrupt') {
-    // 紧急插播 → 弹时间段选择窗
     pendingPublishRow.value = row
     resetPublishConfig()
     publishDialogVisible.value = true
     return
   }
-  // 普通发布 → 直接推送
   doPush(row, 'normal', null, null)
 }
 
-/**
- * 紧急插播确认（从时间段选择弹窗触发）
- */
 async function confirmInterruptPublish() {
   const row = pendingPublishRow.value
   if (!row) return
@@ -285,9 +306,6 @@ async function confirmInterruptPublish() {
   doPush(row, 'interrupt', publishConfig.startTime.getTime(), publishConfig.endTime.getTime())
 }
 
-/**
- * 执行推送（同步版）
- */
 async function doPush(row, publishType, interruptStart, interruptEnd, forceOverwrite) {
   const params = {
     screenId: row.id,
@@ -301,7 +319,6 @@ async function doPush(row, publishType, interruptStart, interruptEnd, forceOverw
     const res = await asyncPushToTerminal(params)
     if (res.code === 0) {
       const data = res.data
-      // 冲突检测：后端返回冲突信息
       if (data && data.conflict) {
         try {
           await ElMessageBox.confirm(data.message, '插播时间冲突', {
@@ -310,16 +327,11 @@ async function doPush(row, publishType, interruptStart, interruptEnd, forceOverw
             type: 'warning',
             dangerouslyUseHTMLString: false,
           })
-          // 用户确认替换，重新发送（带上 forceOverwrite=true）
           doPush(row, publishType, interruptStart, interruptEnd, true)
-        } catch {
-          // 用户点了取消，不做任何操作
-        }
+        } catch { }
         return
       }
-      // 推送成功，直接提示（不弹进度窗）
       ElMessage.success(data || '推送指令已提交')
-      // 立即刷新列表，展示最新状态
       fetchList()
     } else {
       ElMessage.error(res.message || '推送失败')
@@ -329,82 +341,191 @@ async function doPush(row, publishType, interruptStart, interruptEnd, forceOverw
   }
 }
 
+// ==================== 新版定时规则 (ScreenScheduleRule) ====================
 
-async function handleSchedulePublish(row) {
-  const isScheduled = row.scheduledPublishTime && row.scheduledPublishStatus !== '1'
-  if (isScheduled) {
-    // 已设置定时，提供取消/修改选项
-    const action = await ElMessageBox.confirm(
-      `当前定时发布时间：${formatTime(row.scheduledPublishTime)}\n\n取消还是修改？`,
-      '定时发布',
-      {
-        type: 'info',
-        confirmButtonText: '修改时间',
-        cancelButtonText: '取消定时',
-        distinguishCancelAndClose: true,
-      }
-    ).catch((action) => {
-      if (action === 'cancel') return 'cancel'
-      throw action
-    })
-    if (action === 'cancel') {
-      // 取消定时
-      try {
-        const res = await cancelSchedulePublish({ id: row.id })
-        if (res.code === 0) {
-          ElMessage.success('已取消定时发布')
-          fetchList()
-        } else {
-          ElMessage.error(res.message || '操作失败')
-        }
-      } catch (e) {
-        ElMessage.error('操作失败')
-      }
-      return
-    }
-    // 修改时间 -> 继续弹日期选择
+const scheduleDialogVisible = ref(false)
+const scheduleRow = ref(null)
+const scheduleLoading = ref(false)
+const scheduleFormRef = ref(null)
+const scheduleWeeklyDays = ref([])
+const scheduleDateRange = ref(null)
+const scheduleHint = ref('')
+
+const defaultScheduleForm = {
+  id: '',
+  screenId: '',
+  ruleType: 'daily',
+  daysOfWeek: '',
+  specifyStartDate: null,
+  specifyEndDate: null,
+  startTime: '',
+  endTime: '',
+  remark: '',
+}
+
+const scheduleForm = reactive({ ...defaultScheduleForm })
+
+const scheduleRules = {
+  ruleType: [{ required: true, message: '请选择规则类型', trigger: 'change' }],
+  startTime: [{ required: true, message: '请选择开始时间', trigger: 'change' }],
+  endTime: [{ required: true, message: '请选择结束时间', trigger: 'change' }],
+}
+
+function fmtTime(v) {
+  if (!v) return ''
+  if (typeof v === 'string' && /^\d{2}:\d{2}$/.test(v)) return v
+  if (v instanceof Date && !isNaN(v)) {
+    return String(v.getHours()).padStart(2, '0') + ':' + String(v.getMinutes()).padStart(2, '0')
   }
-  // 弹出日期时间选择器
+  return String(v)
+}
+
+function formatDaysOfWeek(str) {
+  if (!str) return ''
+  const map = { '1': '一', '2': '二', '3': '三', '4': '四', '5': '五', '6': '六', '7': '日' }
+  return str.split(',').map(d => '周' + (map[d] || d)).join('、')
+}
+
+function buildScheduleHint(rule) {
+  if (!rule) return ''
+  const tips = {
+    daily: '每天 ' + rule.startTime + ' — ' + rule.endTime + ' 播放，其余时间黑屏',
+    weekly: '每周 ' + formatDaysOfWeek(rule.daysOfWeek) + ' ' + rule.startTime + ' — ' + rule.endTime + ' 播放，其余时间黑屏',
+    date: rule.specifyStartDate + ' 至 ' + (rule.specifyEndDate || '长期') + ' ' + rule.startTime + ' — ' + rule.endTime + ' 播放，其余时间黑屏',
+  }
+  return tips[rule.ruleType] || ''
+}
+
+async function openScheduleDialog(row) {
+  scheduleRow.value = row
+  scheduleForm.screenId = row.id
+  scheduleForm.id = ''
+  scheduleForm.ruleType = 'daily'
+  scheduleForm.daysOfWeek = ''
+  scheduleForm.specifyStartDate = null
+  scheduleForm.specifyEndDate = null
+  scheduleForm.startTime = ''
+  scheduleForm.endTime = ''
+  scheduleForm.remark = ''
+  scheduleWeeklyDays.value = []
+  scheduleDateRange.value = null
+  scheduleHint.value = ''
+
+  // 查询是否已有规则
   try {
-    const { value } = await ElMessageBox.prompt(
-      `请选择定时发布时间（${row.title}）`,
-      '定时发布',
-      {
-        inputType: 'datetime-local',
-        inputPlaceholder: '选择日期和时间',
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        inputValidator: (val) => {
-          if (!val) return '请选择发布时间'
-          const d = new Date(val)
-          if (isNaN(d.getTime())) return '日期格式无效'
-          if (d.getTime() <= Date.now()) return '发布时间必须晚于当前时间'
-          return true
-        },
+    const res = await getScheduleRule(row.id)
+    if (res.code === 0 && res.data) {
+      const rule = res.data
+      scheduleForm.id = rule.id
+      scheduleForm.ruleType = rule.ruleType
+      scheduleForm.daysOfWeek = rule.daysOfWeek || ''
+      scheduleForm.specifyStartDate = rule.specifyStartDate || null
+      scheduleForm.specifyEndDate = rule.specifyEndDate || null
+      scheduleForm.remark = rule.remark || ''
+
+      // 时间转 Date
+      if (rule.startTime && /^\d{2}:\d{2}$/.test(rule.startTime)) {
+        const [h, m] = rule.startTime.split(':')
+        const d = new Date()
+        d.setHours(parseInt(h), parseInt(m), 0, 0)
+        scheduleForm.startTime = d
       }
-    )
-    if (!value) return
-    const d = new Date(value)
-    const pad = (n) => String(n).padStart(2, '0')
-    const localTime = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`
-    const res = await schedulePublish({
-      screenId: row.id,
-      scheduledPublishTime: localTime,
-    })
-    if (res.code === 0) {
-      ElMessage.success('定时发布设置成功')
-      fetchList()
-    } else {
-      ElMessage.error(res.message || '设置失败')
+      if (rule.endTime && /^\d{2}:\d{2}$/.test(rule.endTime)) {
+        const [h, m] = rule.endTime.split(':')
+        const d = new Date()
+        d.setHours(parseInt(h), parseInt(m), 0, 0)
+        scheduleForm.endTime = d
+      }
+
+      if (rule.ruleType === 'weekly' && rule.daysOfWeek) {
+        scheduleWeeklyDays.value = rule.daysOfWeek.split(',')
+      }
+      if (rule.ruleType === 'date' && rule.specifyStartDate) {
+        scheduleDateRange.value = [rule.specifyStartDate, rule.specifyEndDate || null]
+      }
+
+      scheduleHint.value = '当前规则：' + buildScheduleHint(rule)
     }
   } catch (e) {
-    if (e !== 'cancel' && e !== 'close') {
-      ElMessage.error('设置失败')
+    console.error('[Schedule] 查询规则失败', e)
+  }
+
+  scheduleDialogVisible.value = true
+}
+
+function closeScheduleDialog() {
+  scheduleDialogVisible.value = false
+  scheduleRow.value = null
+  scheduleLoading.value = false
+}
+
+async function confirmScheduleRule() {
+  const valid = await scheduleFormRef.value.validate().catch(() => false)
+  if (!valid) return
+
+  const payload = {
+    id: scheduleForm.id || undefined,
+    screenId: scheduleRow.value.id,
+    ruleType: scheduleForm.ruleType,
+    daysOfWeek: scheduleForm.ruleType === 'weekly' ? scheduleWeeklyDays.value.join(',') : '',
+    specifyStartDate: scheduleForm.ruleType === 'date' && scheduleDateRange.value ? scheduleDateRange.value[0] : null,
+    specifyEndDate: scheduleForm.ruleType === 'date' && scheduleDateRange.value ? scheduleDateRange.value[1] : null,
+    startTime: fmtTime(scheduleForm.startTime),
+    endTime: fmtTime(scheduleForm.endTime),
+    remark: scheduleForm.remark || '',
+  }
+
+  if (!payload.startTime || !payload.endTime) {
+    ElMessage.warning('请选择亮屏时段')
+    return
+  }
+
+  scheduleLoading.value = true
+  try {
+    const res = await saveScheduleRule(payload)
+    if (res.code === 0) {
+      ElMessage.success('定时规则保存成功')
+      closeScheduleDialog()
+      fetchList()
+    } else {
+      ElMessage.error(res.message || '保存失败')
     }
+  } catch (e) {
+    ElMessage.error('保存失败: ' + (e.message || e))
+  } finally {
+    scheduleLoading.value = false
   }
 }
+
+async function handleDeleteSchedule() {
+  if (!scheduleForm.id) return
+  try {
+    await ElMessageBox.confirm('确定删除这条定时规则？删除后将不会自动播放切换', '确认', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    const res = await deleteScheduleRule(scheduleForm.id)
+    if (res.code === 0) {
+      ElMessage.success('规则已删除')
+      closeScheduleDialog()
+      fetchList()
+    } else {
+      ElMessage.error(res.message || '删除失败')
+    }
+  } catch (e) {
+    ElMessage.error('删除失败: ' + (e.message || e))
+  }
+}
+
+async function handleSchedulePublish(row) {
+  // 直接打开规则编辑对话框，支持每天/每周/指定日期段
+  openScheduleDialog(row)
+}
+
+// ==================== 删除 ====================
+
 async function handleDelete(row) {
-  // 如果有插播冲突，让后端返回冲突信息，前端弹确认后再强制删除
   await doDeleteWithCheck(row, false)
 }
 
@@ -419,16 +540,14 @@ async function doDeleteWithCheck(row, forceDelete) {
     if (res.code === 0) {
       const data = res.data
       if (data && data.interruptConflict) {
-        // 返回插播冲突，让用户确认
         try {
           await ElMessageBox.confirm(data.message, '插播任务冲突', {
             confirmButtonText: '确认删除',
             cancelButtonText: '取消',
             type: 'warning',
           })
-          // 用户确认，强制删除
           doDeleteWithCheck(row, true)
-        } catch { /* 用户取消 */ }
+        } catch { }
         return
       }
       ElMessage.success(data || '删除成功')
@@ -439,6 +558,8 @@ async function doDeleteWithCheck(row, forceDelete) {
   } catch (e) { /* ignore */ }
 }
 
+// ==================== 工具函数 ====================
+
 function formatTime(val) {
   if (!val) return '-'
   const d = new Date(val)
@@ -447,19 +568,12 @@ function formatTime(val) {
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-/**
- * 插播状态计算
- * 优先使用后端返回的精确状态；后端无状态时用本地时间估算
- */
 function getInterruptStatus(row) {
-  // 优先使用后端精确状态
   const backendStatus = row._interruptStatus
   if (backendStatus === 'cancelled') return '冲突已停止'
   if (backendStatus === 'completed') return '已完成'
   if (backendStatus === 'active') return '执行中'
   if (backendStatus === 'pending') return '待执行'
-
-  // fallback：本地时间估算
   const now = Date.now()
   const start = row._interruptStart
   const end = row._interruptEnd
@@ -476,13 +590,6 @@ function getInterruptTagType(row) {
   if (s === '执行中') return 'danger'
   if (s === '已完成') return 'success'
   return 'info'
-}
-
-function formatMsTime(ts) {
-  if (!ts) return '-'
-  const d = new Date(ts)
-  const pad = (n) => String(n).padStart(2, '0')
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 </script>
 
@@ -531,7 +638,6 @@ function formatMsTime(ts) {
   overflow-x: auto;
 }
 
-/* 发布类型选择弹窗中的网格布局 */
 .prop-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

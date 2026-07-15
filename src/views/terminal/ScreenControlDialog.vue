@@ -18,58 +18,11 @@
       </el-button>
     </div>
 
-    <!-- 定时规则 -->
-    <div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-        <span style="font-size:14px;font-weight:bold;">定时亮屏规则</span>
-        <el-button type="primary" size="small" @click="openAddDialog">新增规则</el-button>
-      </div>
-
-      <el-table :data="scheduleList" style="width:100%;" size="small" max-height="320">
-        <el-table-column prop="ruleType" label="类型" width="90">
-          <template #default="{ row }">
-            <el-tag v-if="row.ruleType === 'fulltime'" size="small">全天</el-tag>
-            <el-tag v-else-if="row.ruleType === 'daily'" type="success" size="small">每天</el-tag>
-            <el-tag v-else-if="row.ruleType === 'weekly'" type="warning" size="small">每周</el-tag>
-            <el-tag v-else-if="row.ruleType === 'date'" type="info" size="small">指定日期</el-tag>
-            <span v-else>{{ row.ruleType }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="daysOfWeek" label="生效日" width="120">
-          <template #default="{ row }">
-            <span v-if="row.ruleType === 'weekly'">{{ formatDaysOfWeek(row.daysOfWeek) }}</span>
-            <span v-else-if="row.ruleType === 'date'">{{ row.specifyDate }}</span>
-            <span v-else style="color:#909399;">—</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="亮屏时段" width="130">
-          <template #default="{ row }">
-            {{ row.startTime }} — {{ row.endTime }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="enabled" label="状态" width="60">
-          <template #default="{ row }">
-            <el-tag v-if="row.enabled === 1" type="success" size="small">启用</el-tag>
-            <el-tag v-else type="info" size="small">禁用</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="100" fixed="right">
-          <template #default="{ row }">
-            <el-button type="primary" link size="small" @click="openEditDialog(row)">编辑</el-button>
-            <el-button type="danger" link size="small" @click="handleDelete(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+    <!-- 定时亮屏规则（每个终端分组只有一条规则） -->
+    <div style="margin-bottom:10px;">
+      <span style="font-size:14px;font-weight:bold;">定时亮屏规则</span>
     </div>
-
-    <!-- 新增/编辑 子对话框 -->
-    <el-dialog
-      :title="scheduleForm.id ? '编辑定时规则' : '新增定时规则'"
-      v-model="scheduleDialogVisible"
-      width="480px"
-      :close-on-click-modal="false"
-      append-to-body
-    >
+    <div style="border:1px solid #e4e7ed;border-radius:6px;padding:20px;">
       <el-form :model="scheduleForm" :rules="scheduleRules" ref="scheduleFormRef" label-width="100px">
         <el-form-item label="规则类型" prop="ruleType">
           <el-select v-model="scheduleForm.ruleType" placeholder="选择类型" style="width:100%;">
@@ -93,30 +46,31 @@
         <el-form-item label="指定日期" prop="specifyDate" v-if="scheduleForm.ruleType === 'date'">
           <el-date-picker v-model="scheduleForm.specifyDate" type="date" placeholder="选择日期" style="width:100%;" value-format="YYYY-MM-DD" />
         </el-form-item>
-        <el-form-item label="开始时间" prop="startTime">
+        <el-form-item label="开始时间" prop="startTime" v-if="scheduleForm.ruleType !== 'fulltime'">
           <el-time-picker v-model="scheduleForm.startTime" format="HH:mm" placeholder="开始时间" style="width:100%;" />
         </el-form-item>
-        <el-form-item label="结束时间" prop="endTime">
+        <el-form-item label="结束时间" prop="endTime" v-if="scheduleForm.ruleType !== 'fulltime'">
           <el-time-picker v-model="scheduleForm.endTime" format="HH:mm" placeholder="结束时间" style="width:100%;" />
         </el-form-item>
         <el-form-item label="备注" prop="remark">
           <el-input v-model="scheduleForm.remark" placeholder="备注（可选）" maxlength="200" />
         </el-form-item>
       </el-form>
-      <template #footer>
-        <el-button @click="scheduleDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="scheduleLoading" @click="submitSchedule">确认</el-button>
-      </template>
-    </el-dialog>
+      <div v-if="scheduleHint" style="margin-top:12px;font-size:12px;color:#909399;">
+        {{ scheduleHint }}
+      </div>
+    </div>
 
     <template #footer>
       <el-button @click="visible = false">关闭</el-button>
+      <el-button type="primary" :loading="scheduleLoading" @click="submitSchedule">{{ scheduleForm.id ? '保存规则' : '保存规则' }}</el-button>
+      <el-button v-if="scheduleForm.id" type="danger" plain :loading="deleteLoading" @click="handleDelete">重置为全天</el-button>
     </template>
   </el-dialog>
 </template>
 
 <script setup>
-import { ref, reactive, watch, nextTick } from 'vue'
+import { ref, reactive, watch, computed, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Monitor, View } from '@element-plus/icons-vue'
 import request from '@/utils/request'
@@ -132,6 +86,7 @@ const visible = ref(false)
 const ctrlLoading = ref(false)
 const scheduleList = ref([])
 const scheduleLoading = ref(false)
+const deleteLoading = ref(false)
 const scheduleDialogVisible = ref(false)
 const scheduleFormRef = ref(null)
 const weeklyDays = ref([])
@@ -151,9 +106,24 @@ const scheduleForm = reactive({ ...defaultScheduleForm })
 
 const scheduleRules = {
   ruleType: [{ required: true, message: '请选择规则类型', trigger: 'change' }],
-  startTime: [{ required: true, message: '请选择开始时间', trigger: 'change' }],
-  endTime: [{ required: true, message: '请选择结束时间', trigger: 'change' }],
+  startTime: [{ required: false, message: '请选择开始时间', trigger: 'change' }],
+  endTime: [{ required: false, message: '请选择结束时间', trigger: 'change' }],
 }
+
+const scheduleHint = computed(() => {
+  const rule = scheduleForm
+  if (!rule.ruleType) return ''
+  const start = fmtTime(rule.startTime)
+  const end = fmtTime(rule.endTime)
+  if (rule.ruleType === 'fulltime') return '全天 00:00 — 23:59 亮屏'
+  if (rule.ruleType === 'daily') return start && end ? `每天 ${start} — ${end} 亮屏，其余时间黑屏` : ''
+  if (rule.ruleType === 'weekly') {
+    const dw = weeklyDays.value.length ? formatDaysOfWeek(weeklyDays.value.join(',')) : '?'
+    return start && end ? `每周 ${dw} ${start} — ${end} 亮屏，其余时间黑屏` : ''
+  }
+  if (rule.ruleType === 'date') return rule.specifyDate && start && end ? `${rule.specifyDate} ${start} — ${end} 亮屏` : ''
+  return ''
+})
 
 function show() {
   visible.value = true
@@ -161,22 +131,64 @@ function show() {
 
 function initData() {
   scheduleForm.terminalId = props.terminalId
-  fetchSchedules()
+  fetchCurrentRule()
 }
 
 function handleClosed() {
   emit('close')
 }
 
-async function fetchSchedules() {
+async function fetchCurrentRule() {
   try {
     const res = await request.post('/api/terminal/screen-schedule/list', { terminalId: props.terminalId })
     if (res.code === 0) {
-      scheduleList.value = res.data || []
+      const list = res.data || []
+      // 取第一条启用的规则（每个终端分组只有一条规则）
+      const rule = list.find(r => r.enabled === 1) || list[0]
+      if (rule) {
+        scheduleForm.id = rule.id
+        scheduleForm.ruleType = rule.ruleType || 'daily'
+        scheduleForm.daysOfWeek = rule.daysOfWeek || ''
+        scheduleForm.specifyDate = rule.specifyDate || null
+        scheduleForm.remark = rule.remark || ''
+
+        if (rule.startTime && /^\d{2}:\d{2}$/.test(rule.startTime)) {
+          const [h, m] = rule.startTime.split(':')
+          const d = new Date()
+          d.setHours(parseInt(h), parseInt(m), 0, 0)
+          scheduleForm.startTime = d
+        } else {
+          scheduleForm.startTime = ''
+        }
+        if (rule.endTime && /^\d{2}:\d{2}$/.test(rule.endTime)) {
+          const [h, m] = rule.endTime.split(':')
+          const d = new Date()
+          d.setHours(parseInt(h), parseInt(m), 0, 0)
+          scheduleForm.endTime = d
+        } else {
+          scheduleForm.endTime = ''
+        }
+
+        if (rule.ruleType === 'weekly' && rule.daysOfWeek) {
+          weeklyDays.value = rule.daysOfWeek.split(',')
+        } else {
+          weeklyDays.value = []
+        }
+      } else {
+        resetForm()
+      }
+    } else {
+      resetForm()
     }
   } catch (e) {
     console.error('[ScreenControl] 查询规则失败', e)
+    resetForm()
   }
+}
+
+function resetForm() {
+  Object.assign(scheduleForm, { ...defaultScheduleForm, terminalId: props.terminalId })
+  weeklyDays.value = []
 }
 
 async function handleControl(action) {
@@ -198,79 +210,43 @@ async function handleControl(action) {
   }
 }
 
-function openAddDialog() {
-  Object.assign(scheduleForm, { ...defaultScheduleForm, terminalId: props.terminalId })
-  weeklyDays.value = []
-  scheduleDialogVisible.value = true
-}
-
-function openEditDialog(row) {
-  Object.assign(scheduleForm, {
-    id: row.id,
-    terminalId: row.terminalId,
-    ruleType: row.ruleType,
-    daysOfWeek: row.daysOfWeek || '',
-    specifyDate: row.specifyDate || null,
-    startTime: row.startTime,
-    endTime: row.endTime,
-    remark: row.remark || '',
-  })
-  // 将字符串时间转换为 Date 对象（el-time-picker 需要 Date 才能正常渲染）
-  if (row.startTime && typeof row.startTime === 'string' && /^\d{2}:\d{2}$/.test(row.startTime)) {
-    const [h, m] = row.startTime.split(':')
-    const d = new Date()
-    d.setHours(parseInt(h), parseInt(m), 0, 0)
-    scheduleForm.startTime = d
+function fmtTime(v) {
+  if (!v) return ''
+  if (typeof v === 'string' && /^\d{2}:\d{2}$/.test(v)) return v
+  if (v instanceof Date && !isNaN(v)) {
+    return String(v.getHours()).padStart(2, '0') + ':' + String(v.getMinutes()).padStart(2, '0')
   }
-  if (row.endTime && typeof row.endTime === 'string' && /^\d{2}:\d{2}$/.test(row.endTime)) {
-    const [h, m] = row.endTime.split(':')
-    const d = new Date()
-    d.setHours(parseInt(h), parseInt(m), 0, 0)
-    scheduleForm.endTime = d
-  }
-  if (row.ruleType === 'weekly' && row.daysOfWeek) {
-    weeklyDays.value = row.daysOfWeek.split(',')
-  } else {
-    weeklyDays.value = []
-  }
-  scheduleDialogVisible.value = true
+  return String(v)
 }
 
 async function submitSchedule() {
   const valid = await scheduleFormRef.value.validate().catch(() => false)
   if (!valid) return
 
-  // 格式化时间为 HH:mm 字符串（el-time-picker 返回 Date，后端需要 HH:mm）
-  function fmtTime(v) {
-    if (!v) return ''
-    if (typeof v === 'string' && /^\d{2}:\d{2}$/.test(v)) return v
-    if (v instanceof Date && !isNaN(v)) {
-      return String(v.getHours()).padStart(2, '0') + ':' + String(v.getMinutes()).padStart(2, '0')
-    }
-    return String(v)
-  }
-  // 组装参数
   const payload = {
     id: scheduleForm.id || undefined,
     terminalId: props.terminalId,
     ruleType: scheduleForm.ruleType,
     daysOfWeek: scheduleForm.ruleType === 'weekly' ? weeklyDays.value.join(',') : '',
     specifyDate: scheduleForm.ruleType === 'date' ? scheduleForm.specifyDate : null,
-    startTime: fmtTime(scheduleForm.startTime),
-    endTime: fmtTime(scheduleForm.endTime),
+    startTime: scheduleForm.ruleType === 'fulltime' ? '00:00' : fmtTime(scheduleForm.startTime),
+    endTime: scheduleForm.ruleType === 'fulltime' ? '23:59' : fmtTime(scheduleForm.endTime),
     remark: scheduleForm.remark || '',
+  }
+
+  if (scheduleForm.ruleType !== 'fulltime' && (!payload.startTime || !payload.endTime)) {
+    ElMessage.warning('请选择亮屏时段')
+    return
   }
 
   scheduleLoading.value = true
   try {
-    const api = scheduleForm.id ? '/api/terminal/screen-schedule/update' : '/api/terminal/screen-schedule/add'
-    const res = await request.post(api, payload)
+    const res = await request.post('/api/terminal/screen-schedule/add', payload)
     if (res.code === 0) {
-      ElMessage.success({ message: res.message || '操作成功', duration: 2000 })
-      scheduleDialogVisible.value = false
-      fetchSchedules()
+      ElMessage.success({ message: res.message || '保存成功', duration: 2000 })
+      fetchCurrentRule()
     } else {
-      ElMessage.error({ message: res.message || '操作失败', duration: 3000 })
+      ElMessage.error({ message: res.message || '保存失败', duration: 3000 })
     }
   } catch (e) {
     ElMessage.error({ message: '网络错误', duration: 3000 })
@@ -279,22 +255,25 @@ async function submitSchedule() {
   }
 }
 
-async function handleDelete(row) {
+async function handleDelete() {
   try {
-    await ElMessageBox.confirm(`确定删除这条定时规则？`, '确认', { type: 'warning' })
+    await ElMessageBox.confirm('重置为全天规则？当前定时规则将被删除', '确认', { type: 'warning' })
   } catch {
     return
   }
+  deleteLoading.value = true
   try {
-    const res = await request.post('/api/terminal/screen-schedule/delete', { id: row.id })
+    const res = await request.post('/api/terminal/screen-schedule/delete', { id: scheduleForm.id })
     if (res.code === 0) {
-      ElMessage.success({ message: res.message || '删除成功', duration: 2000 })
-      fetchSchedules()
+      ElMessage.success({ message: res.message || '已重置为全天', duration: 2000 })
+      fetchCurrentRule()
     } else {
-      ElMessage.error({ message: res.message || '删除失败', duration: 3000 })
+      ElMessage.error({ message: res.message || '操作失败', duration: 3000 })
     }
   } catch (e) {
     ElMessage.error({ message: '网络错误', duration: 3000 })
+  } finally {
+    deleteLoading.value = false
   }
 }
 
@@ -304,6 +283,5 @@ function formatDaysOfWeek(str) {
   return str.split(',').map(d => '周' + (map[d] || d)).join('、')
 }
 
-// 暴露 show 方法给父组件
 defineExpose({ show })
 </script>

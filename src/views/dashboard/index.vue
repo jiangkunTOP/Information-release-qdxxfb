@@ -15,7 +15,7 @@
         </div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon camera"><el-icon size="28"><CloseBold /></el-icon></div>
+        <div class="stat-icon offline"><el-icon size="28"><CloseBold /></el-icon></div>
         <div class="stat-body">
           <div class="stat-value">{{ statistics.cameraOfflineCount }}</div>
           <div class="stat-label">离线摄像头</div>
@@ -236,7 +236,7 @@ onMounted(() => {
 }
 
 .stat-icon.camera { background: linear-gradient(135deg, #48bb78, #68d391); }
-.stat-icon.server { background: linear-gradient(135deg, #718096, #a0aec0); }
+.stat-icon.server { background: linear-gradient(135deg, #48bb78, #68d391); }
 .stat-icon.offline { background: linear-gradient(135deg, #f56565, #fc8181); }
 .stat-icon.alarm { background: linear-gradient(135deg, #e6a23c, #f4d19b); }
 

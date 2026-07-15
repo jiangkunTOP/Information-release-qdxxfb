@@ -25,6 +25,12 @@ const routes = [
         meta: { title: '终端设备分组', icon: 'Monitor', roles: ['系统管理员', '操作员'] },
       },
       {
+        path: 'material',
+        name: 'MaterialLibrary',
+        component: () => import('@/views/material/index.vue'),
+        meta: { title: '素材库', icon: 'FolderOpened', roles: ['系统管理员', '审计员'] },
+      },
+      {
         path: 'heartbeat',
         name: 'Heartbeat',
         component: () => import('@/views/heartbeat/index.vue'),
@@ -40,7 +46,7 @@ const routes = [
         path: 'audit',
         name: 'Audit',
         component: () => import('@/views/audit/index.vue'),
-        meta: { title: '操作审计', icon: 'Document', roles: ['系统管理员', '审计员'] },
+        meta: { title: '操作日志', icon: 'Document', roles: ['系统管理员', '审计员'] },
       },
       {
         path: 'user',

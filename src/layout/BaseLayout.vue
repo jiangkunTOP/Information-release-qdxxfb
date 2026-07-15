@@ -46,10 +46,10 @@
           <template #title>抓拍回传</template>
         </el-menu-item>
 
-        <!-- 操作审计：管理员 + 审计员 -->
+        <!-- 操作日志：管理员 + 审计员 -->
         <el-menu-item v-if="userStore.canAccessAudit" index="/audit">
           <el-icon><Document /></el-icon>
-          <template #title>操作审计</template>
+          <template #title>操作日志</template>
         </el-menu-item>
 
         <!-- 用户管理：仅管理员 -->
@@ -62,6 +62,12 @@
         <el-menu-item v-if="userStore.canAccessArchive" index="/archive">
           <el-icon><Files /></el-icon>
           <template #title>异地归档</template>
+        </el-menu-item>
+
+        <!-- 素材库：管理员 + 操作员 -->
+        <el-menu-item v-if="userStore.canAccessAudit" index="/material">
+          <el-icon><FolderOpened /></el-icon>
+          <template #title>素材库</template>
         </el-menu-item>
 
         <!-- 大屏发布：管理员 + 操作员 -->

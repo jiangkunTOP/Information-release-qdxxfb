@@ -1,4 +1,4 @@
-import request from '@/utils/request'
+﻿import request from '@/utils/request'
 
 /**
  * 大屏相关 API
@@ -185,6 +185,30 @@ export function cancelSchedulePublish(data) {
     url: '/api/screen/cancel-schedule-publish',
     method: 'post',
     data,
+  })
+}
+// 新定时规则 API（支持每天/每周/指定日期段）
+export function saveScheduleRule(data) {
+  return request({
+    url: '/api/screen/schedule-rule/save',
+    method: 'post',
+    data,
+  })
+}
+
+export function getScheduleRule(screenId) {
+  return request({
+    url: '/api/screen/schedule-rule/get',
+    method: 'get',
+    params: { screenId },
+  })
+}
+
+export function deleteScheduleRule(id) {
+  return request({
+    url: '/api/screen/schedule-rule/delete',
+    method: 'get',
+    params: { id },
   })
 }
 
@@ -381,6 +405,15 @@ export async function terminalUploadChunk(terminalIp, chunkBlob, uploadId, chunk
  * @param {string} uploadToken 上传令牌
  * @returns {Promise<{id, fileName, fileSize, fileHash, mimeType, zone}>}
  */
+export async function terminalDeleteFile(terminalIp, fileHash, screenId) {
+  const params = new URLSearchParams({ hash: fileHash })
+  if (screenId) params.set('screenId', screenId)
+  const url = `http://${terminalIp}:3001/media/delete?${params.toString()}`
+  const res = await fetch(url, { method: 'GET' })
+  if (!res.ok) throw new Error(`终端删除返回 HTTP ${res.status}`)
+  return res.json()
+}
+
 export async function terminalCompleteUpload(terminalIp, data, uploadToken) {
   return terminalFetch(
     terminalIp,
@@ -413,3 +446,103 @@ export function terminalFetchResources(terminalIp, screenId) {
   const url = 'http://' + terminalIp + ':3001/resources/list?screenId=' + (screenId || '')
   return fetch(url, { method: 'GET' }).then(r => r.json())
 }
+
+// ==================== v5.1 后端代理上传（前端→后端→终端，解决VPN直连不通问题） ====================
+//
+// 所有上传走后端转发，前端只需通过 axios 调后端 /api/terminal/proxy-upload，
+// 后端在内网中直连终端的 3001/upload 接口。
+// 保留原直连函数（terminalUploadSimple / terminalInitUpload 等）不改，
+// 供局域网直连场景回退使用。
+
+/**
+ * 后端代理上传 — 小文件直传
+ *
+ * @param {File} file 文件对象
+ * @param {string} terminalIp 终端 IP
+ * @param {string} uploadToken 上传令牌
+ * @param {Function} onProgress 上传进度回调（可选）
+ * @returns {Promise<object>} 终端返回的结果
+ */
+export function proxyUploadSimple(file, terminalIp, uploadToken, onProgress) {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('terminalIp', terminalIp)
+  formData.append('uploadToken', uploadToken)
+
+  const config = {
+    url: '/api/terminal/proxy-upload',
+    method: 'post',
+    data: formData,
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  }
+  if (onProgress) {
+    config.onUploadProgress = onProgress
+  }
+  return request(config)
+}
+
+/**
+ * 后端代理分片上传 — 初始化
+ *
+ * @param {string} terminalIp 终端 IP
+ * @param {string} uploadToken 上传令牌
+ * @param {{ fileName: string, fileSize: number, totalChunks: number }} data
+ * @returns {Promise<{uploadId, resumedChunks, chunkSize}>}
+ */
+export function proxyUploadInit(terminalIp, uploadToken, data) {
+  return request({
+    url: '/api/terminal/proxy-upload/init',
+    method: 'post',
+    params: { terminalIp, uploadToken },
+    data,
+  })
+}
+
+/**
+ * 后端代理分片上传 — 上传单一切片
+ *
+ * @param {Blob} chunkBlob 切片二进制
+ * @param {string} terminalIp 终端 IP
+ * @param {string} uploadToken 上传令牌
+ * @param {string} uploadId 上传会话 ID
+ * @param {number} chunkIndex 切片序号
+ * @returns {Promise<{ok, chunkIndex, received, total}>}
+ */
+export function proxyUploadChunk(chunkBlob, terminalIp, uploadToken, uploadId, chunkIndex) {
+  const formData = new FormData()
+  formData.append('file', chunkBlob, `chunk_${chunkIndex}`)
+  formData.append('terminalIp', terminalIp)
+  formData.append('uploadToken', uploadToken)
+  formData.append('uploadId', uploadId)
+  formData.append('chunkIndex', String(chunkIndex))
+
+  return request({
+    url: '/api/terminal/proxy-upload/chunk',
+    method: 'post',
+    data: formData,
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  })
+}
+
+/**
+ * 后端代理分片上传 — 完成合片
+ *
+ * @param {string} terminalIp 终端 IP
+ * @param {string} uploadToken 上传令牌
+ * @param {{ uploadId: string, totalChunks: number }} data
+ * @returns {Promise<{id, fileName, fileSize, fileHash, mimeType, zone}>}
+ */
+export function proxyUploadComplete(terminalIp, uploadToken, data) {
+  return request({
+    url: '/api/terminal/proxy-upload/complete',
+    method: 'post',
+    params: { terminalIp, uploadToken },
+    data,
+  })
+}
+
+

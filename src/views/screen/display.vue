@@ -11,7 +11,10 @@
         <video v-if="el.type==='video'" :src="resolveMediaUrl(el.src)" autoplay playsinline :loop="el.loop!==false" muted style="width:100%;height:100%;object-fit:fill;display:block;" />
         <img v-else-if="el.type==='image'" :src="resolveMediaUrl(el.src)" style="width:100%;height:100%;object-fit:fill;display:block;" :style="{ opacity: el.opacity ?? 1 }" />
         <div v-else-if="el.type==='carousel'" class="carousel-wrap">
-          <img v-for="(img, ci) in (el.images||[])" :key="ci" :src="resolveMediaUrl(img)" style="width:100%;height:100%;object-fit:fill;position:absolute;left:0;top:0;" :style="{ opacity: carouselIdx(el.id)===ci ? 1 : 0, transition: 'opacity .6s' }" />
+          <img v-for="(img, ci) in (el.images||[])" :key="ci" :src="resolveMediaUrl(typeof img === 'string' ? img : img.src)" style="width:100%;height:100%;object-fit:fill;position:absolute;left:0;top:0;" :style="{ opacity: carouselIdx(el.id)===ci ? 1 : 0, transition: 'opacity .6s' }" />
+        </div>
+        <div v-else-if="['ppt','pdf','word'].includes(el.type)" :style="{ backgroundImage: el.src ? 'url(' + resolveMediaUrl(el.src) + ')' : 'none', backgroundSize: el.fullscreen ? 'cover' : 'contain', backgroundPosition: 'center', backgroundRepeat: 'no-repeat', width: '100%', height: '100%' }">
+          <div style="position:absolute;bottom:16px;right:50%;transform:translateX(50%);background:rgba(0,0,0,0.6);color:#fff;font-size:18px;padding:4px 16px;border-radius:6px;z-index:10;">{{ (el.currentPage || 0) + 1 }} / {{ el.totalPages || 1 }}</div>
         </div>
         <div v-else-if="el.type==='text'" class="el-text" :style="{ fontSize: el.fontSize+'px', color: el.color, fontWeight: el.bold?'bold':'normal', textAlign: el.textAlign||'center', fontFamily: el.fontFamily||'inherit' }">{{ el.content || '' }}</div>
         <div v-else-if="el.type==='scrollText'" class="el-scroll-text">
@@ -43,6 +46,7 @@ const pageWidth = ref(1920)
 const pageHeight = ref(1080)
 const backgroundColor = ref('#000000')
 const backgroundImage = ref('')
+const backgroundFit = ref('fill')
 const currentTimeStr = ref('')
 const currentDateStr = ref('')
 
@@ -63,8 +67,9 @@ let displayWs = null
 const bgStyle = computed(() => ({
   backgroundColor: backgroundColor.value,
   backgroundImage: backgroundImage.value ? 'url(' + resolveMediaUrl(backgroundImage.value) + ')' : 'none',
-  backgroundSize: '100% 100%',
+  backgroundSize: backgroundFit.value === 'contain' ? 'contain' : '100% 100%',
   backgroundPosition: 'center',
+  backgroundRepeat: 'no-repeat',
 }))
 
 const canvasStyle = computed(() => ({
@@ -271,6 +276,7 @@ function renderScreenData(data) {
   pageHeight.value = data.pageHeight || 1080
   backgroundColor.value = data.backgroundColor || '#000000'
   backgroundImage.value = data.backgroundImage || ''
+  backgroundFit.value = data.backgroundFit || 'fill'
   if (data.layoutJson) {
     try { elements.value = JSON.parse(data.layoutJson) || [] } catch (e) { elements.value = [] }
     elements.value.forEach(el => { startCarouselForElement(el) })
